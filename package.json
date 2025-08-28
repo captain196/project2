@@ -2,14 +2,15 @@
   "name": "project2",
   "version": "1.0.0",
   "main": "indexes.js",
-"scripts": {
-  "start": "node indexes.js"
-},
+  "scripts": {
+    "start": "node indexes.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "mongoose": "^8.18.0"
   }

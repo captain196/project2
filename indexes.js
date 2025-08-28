@@ -5,16 +5,20 @@ const { MongoClient } = require("mongodb");
 const app = express();
 app.use(express.json());
 
-const MONGODB_URI = "mongodb+srv://yugant196:hWJxdoKieF3WDbvA@graderiq.tu7eedk.mongodb.net/";
+// ✅ Use environment variable, no hardcoding here
 const client = new MongoClient(process.env.MONGODB_URI);
 
 let usersCollection;
 
 async function connectDB() {
-  await client.connect();
-  const db = client.db("graerIQ"); // your db name
-  usersCollection = db.collection("users");
-  console.log("✅ Connected to MongoDB");
+  try {
+    await client.connect();
+    const db = client.db("graderIQ"); // ✅ make sure db name is correct
+    usersCollection = db.collection("users");
+    console.log("✅ Connected to MongoDB");
+  } catch (err) {
+    console.error("❌ DB connection error:", err);
+  }
 }
 
 app.post("/login", async (req, res) => {
@@ -31,6 +35,7 @@ app.post("/login", async (req, res) => {
   }
 });
 
+// ✅ Start app after DB is ready
 connectDB().then(() => {
   const port = process.env.PORT || 3000;
   app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
