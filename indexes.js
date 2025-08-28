@@ -13,7 +13,7 @@ let usersCollection;
 async function connectDB() {
   try {
     await client.connect();
-    const db = client.db("graderIQ"); // ✅ make sure db name is correct
+    const db = client.db("gaerIQ"); // ✅ make sure db name is correct
     usersCollection = db.collection("users");
     console.log("✅ Connected to MongoDB");
   } catch (err) {
