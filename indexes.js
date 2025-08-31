@@ -32,14 +32,14 @@ app.post("/login", async (req, res) => {
     console.log("User found:", user);
 
     if (!user) {
-      return res.json({ success: false, message: "Invalid credentials" });
+      return res.json({ success: false, message: "Invalid UserID" });
     }
 
     const validPassword = await bcrypt.compare(password, user.password);
     console.log("Password valid?", validPassword);
 
     if (!validPassword) {
-      return res.json({ success: false, message: "Invalid credentials" });
+      return res.json({ success: false, message: "Wrong Password" });
     }
 
     const token = jwt.sign({ userId: user.userId }, process.env.JWT_SECRET, {
@@ -67,6 +67,7 @@ app.get("/profile", authenticateToken, async (req, res) => {
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
+  
 
   if (!token) return res.status(401).json({ message: "No token provided" });
 
