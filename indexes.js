@@ -59,6 +59,36 @@ app.post("/login", async (req, res) => {
   }
 });
 
+// ✅ Check if phone exists API
+app.post("/find_users_by_phone", async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone) {
+      return res.status(400).json({ success: false, message: "Phone number is required" });
+    }
+
+    const users = await usersCollection.find({ phone }).toArray();
+
+    if (users.length > 0) {
+      return res.json({
+        success: true,
+        count: users.length,
+        users: users.map(user => ({
+          userId: user.userId,
+          schoolId: user.schoolId || null,
+          phone: user.phone
+        }))
+      });
+    } else {
+      return res.json({ success: true, count: 0, users: [] });
+    }
+  } catch (error) {
+    console.error("Error finding users by phone:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
+
 
 // ✅ Protected route example
 app.get("/profile", authenticateToken, async (req, res) => {
