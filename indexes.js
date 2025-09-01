@@ -49,6 +49,8 @@ app.post("/login", async (req, res) => {
     res.json({
       success: true,
       message: "Login successful",
+      userId: user.userId || null,
+      schoolId: user.schoolId || null,
       token,
     });
   } catch (err) {
