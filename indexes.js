@@ -3,6 +3,7 @@ const express = require("express");
 const { MongoClient } = require("mongodb");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
+const nodemailer = require("nodemailer");
 
 const app = express();
 app.use(express.json());
@@ -21,6 +22,62 @@ async function connectDB() {
     console.error("❌ DB connection error:", err);
   }
 }
+
+// ✅ Nodemailer setup
+const transporter = nodemailer.createTransport({
+  service: "gmail", // you can use smtp if needed
+  auth: {
+    user: process.env.EMAIL_USER, // your email
+    pass: process.env.EMAIL_PASS  // app-specific password
+  }
+});
+
+
+// ✅ Temporary OTP store (replace with DB in production)
+const otpStore = new Map();
+
+// ✅ Send OTP via email
+app.post("/send_otp", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ success: false, message: "Email required" });
+  }
+
+  const otp = Math.floor(100000 + Math.random() * 900000); // 6-digit code
+  otpStore.set(email, otp);
+
+  try {
+    await transporter.sendMail({
+      from: process.env.EMAIL_USER,
+      to: email,
+      subject: "Your Verification Code",
+      text: `Your OTP is: ${otp}`,
+    });
+
+    res.json({ success: true, message: "OTP sent to email" });
+  } catch (error) {
+    console.error("❌ Error sending OTP:", error);
+    res.status(500).json({ success: false, message: "Failed to send OTP" });
+  }
+});
+
+// ✅ Verify OTP
+app.post("/verify_otp", (req, res) => {
+  const { email, otp } = req.body;
+  const savedOtp = otpStore.get(email);
+
+  try{
+    if (savedOtp && savedOtp.toString() === otp.toString()) {
+      otpStore.delete(email); // clear OTP once used
+      return res.json({ success: true, message: "OTP verified successfully" });
+    } else {
+      return res.json({ success: false, message: "Invalid or expired OTP" });
+    }
+  }catch (error){
+    console.error("❌ Error verifying OTP:", error);
+    res.status(500).json({ success: false, message: "Failed to verify OTP" });
+  }
+});
 
 // ✅ Login API
 app.post("/login", async (req, res) => {
