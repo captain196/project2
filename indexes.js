@@ -23,6 +23,11 @@ async function connectDB() {
   }
 }
 
+app.get("/", (req, res) => {
+  res.send("✅ Backend is running!");
+});
+
+
 // ✅ Nodemailer setup
 const transporter = nodemailer.createTransport({
   service: "gmail", // you can use smtp if needed
