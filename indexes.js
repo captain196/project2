@@ -167,7 +167,7 @@ app.post("/find_users_by_email", async (req, res) => {
         users: users.map(user => ({
           userId: user.userId,
           schoolId: user.schoolId || null,
-          phone: user.email
+          email: user.email
         }))
       });
     } else {
