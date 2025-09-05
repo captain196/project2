@@ -150,6 +150,35 @@ app.post("/find_users_by_phone", async (req, res) => {
   }
 });
 
+// ✅ Check if email exists API
+app.post("/find_users_by_email", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: "EmailId is required" });
+    }
+
+    const users = await usersCollection.find({ email }).toArray();
+
+    if (users.length > 0) {
+      return res.json({
+        success: true,
+        count: users.length,
+        users: users.map(user => ({
+          userId: user.userId,
+          schoolId: user.schoolId || null,
+          phone: user.email
+        }))
+      });
+    } else {
+      return res.json({ success: true, count: 0, users: [] });
+    }
+  } catch (error) {
+    console.error("Error finding users by email:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 
 
 // ✅ Protected route example
