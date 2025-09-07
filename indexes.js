@@ -85,38 +85,37 @@ app.post("/verify_otp", (req, res) => {
 });
 
 // ✅ Login API
+// ✅ Login API
 app.post("/login", async (req, res) => {
   const { userId, password } = req.body;
   console.log("Login attempt:", userId);
 
   try {
     const user = await usersCollection.findOne({ userId });
-    console.log("User found:", user);
-
     if (!user) {
       return res.json({ success: false, message: "Invalid UserID" });
     }
 
     const validPassword = await bcrypt.compare(password, user.password);
-    console.log("Password valid?", validPassword);
-
     if (!validPassword) {
       return res.json({ success: false, message: "Wrong Password" });
     }
 
-    const token = jwt.sign({ userId: user.userId }, process.env.JWT_SECRET, {
-      expiresIn: "7d",
-    });
+    const token = jwt.sign(
+      { userId: user.userId, tokenVersion: user.tokenVersion || 0 }, // 👈 include tokenVersion
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
     res.json({
       success: true,
       message: "Login successful",
-      userId: user.userId || null,
+      userId: user.userId,
       schoolId: user.schoolId || null,
       token,
     });
   } catch (err) {
-    console.error("Login error:", err);  // 🔹 This will print the real error
+    console.error("Login error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
@@ -179,6 +178,40 @@ app.post("/find_users_by_email", async (req, res) => {
   }
 });
 
+// ✅ Change/Update Password API
+app.post("/change_password", async (req, res) => {
+  const { userId, password } = req.body;
+
+  if (!userId || !password) {
+    return res.status(400).json({ success: false, message: "UserId and Password required" });
+  }
+
+  try {
+    const user = await usersCollection.findOne({ userId });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Hash new password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // Update password + increment tokenVersion
+    await usersCollection.updateOne(
+      { userId },
+      { 
+        $set: { password: hashedPassword },
+        $inc: { tokenVersion: 1 }  // 👈 invalidate old tokens
+      }
+    );
+
+    res.json({ success: true, message: "Password updated successfully, all sessions logged out" });
+  } catch (error) {
+    console.error("❌ Error updating password:", error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
+
 
 
 // ✅ Protected route example
@@ -190,17 +223,24 @@ app.get("/profile", authenticateToken, async (req, res) => {
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
-  
 
   if (!token) return res.status(401).json({ message: "No token provided" });
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
     if (err) return res.status(403).json({ message: "Invalid token" });
 
-    req.user = user; // attach user info
+    const user = await usersCollection.findOne({ userId: decoded.userId });
+
+    // ❌ If tokenVersion doesn't match, logout
+    if (!user || user.tokenVersion !== decoded.tokenVersion) {
+      return res.status(401).json({ message: "Session expired, please log in again" });
+    }
+
+    req.user = decoded;
     next();
   });
 }
+
 
 connectDB().then(() => {
   const port = process.env.PORT || 3000;
