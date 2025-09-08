@@ -28,6 +28,24 @@ app.get("/", (req, res) => {
 });
 
 
+// 🔑 Generate Tokens
+function generateAccessToken(user) {
+  return jwt.sign(
+    { userId: user.userId, tokenVersion: user.tokenVersion || 0 },
+    process.env.JWT_SECRET,
+    { expiresIn: "15m" }   // short expiry
+  );
+}
+
+function generateRefreshToken(user) {
+  return jwt.sign(
+    { userId: user.userId, tokenVersion: user.tokenVersion || 0 },
+    process.env.JWT_REFRESH_SECRET,
+    { expiresIn: "60d" }   // long expiry
+  );
+}
+
+
 // ✅ Nodemailer setup
 const transporter = nodemailer.createTransport({
   service: "gmail", // you can use smtp if needed
@@ -38,18 +56,20 @@ const transporter = nodemailer.createTransport({
 });
 
 
-// ✅ Temporary OTP store (replace with DB in production)
+// ✅ Temporary OTP store 
 const otpStore = new Map();
 
-// ✅ Send OTP via email
+// ✅ Send OTP
 app.post("/send_otp", async (req, res) => {
   const { email } = req.body;
   if (!email) {
     return res.status(400).json({ success: false, message: "Email required" });
   }
 
-  const otp = Math.floor(100000 + Math.random() * 900000); // 6-digit code
-  otpStore.set(email, otp);
+  const otp = Math.floor(100000 + Math.random() * 900000); // 6-digit OTP
+  const expiry = Date.now() + 5 * 60 * 1000; // 5 minutes from now
+
+  otpStore.set(email, { otp: otp.toString(), expiry });
 
   try {
     await transporter.sendMail({
@@ -69,26 +89,30 @@ app.post("/send_otp", async (req, res) => {
 // ✅ Verify OTP
 app.post("/verify_otp", (req, res) => {
   const { email, otp } = req.body;
-  const savedOtp = otpStore.get(email);
+  const record = otpStore.get(email);
 
-  try{
-    if (savedOtp && savedOtp.toString() === otp.toString()) {
-      otpStore.delete(email); // clear OTP once used
-      return res.json({ success: true, message: "OTP verified successfully" });
-    } else {
-      return res.json({ success: false, message: "Invalid or expired OTP" });
-    }
-  }catch (error){
-    console.error("❌ Error verifying OTP:", error);
-    res.status(500).json({ success: false, message: "Failed to verify OTP" });
+  if (!record) {
+    return res.json({ success: false, message: "No OTP found or already used" });
   }
+
+  if (Date.now() > record.expiry) {
+    otpStore.delete(email); // cleanup
+    return res.json({ success: false, message: "OTP expired" });
+  }
+
+  if (record.otp !== otp.toString()) {
+    return res.json({ success: false, message: "Invalid OTP" });
+  }
+
+  // ✅ OTP is correct and valid
+  otpStore.delete(email); // one-time use
+  res.json({ success: true, message: "OTP verified successfully" });
 });
 
-// ✅ Login API
+
 // ✅ Login API
 app.post("/login", async (req, res) => {
   const { userId, password } = req.body;
-  console.log("Login attempt:", userId);
 
   try {
     const user = await usersCollection.findOne({ userId });
@@ -101,10 +125,14 @@ app.post("/login", async (req, res) => {
       return res.json({ success: false, message: "Wrong Password" });
     }
 
-    const token = jwt.sign(
-      { userId: user.userId, tokenVersion: user.tokenVersion || 0 }, // 👈 include tokenVersion
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+    const accessToken = generateAccessToken(user);
+    const refreshToken = generateRefreshToken(user);
+
+    // ✅ Save refresh token in DB (so we can revoke it if needed)
+    await usersCollection.updateOne(
+      { userId: user.userId },
+      { $push: { refreshTokens: refreshToken } }
+
     );
 
     res.json({
@@ -112,13 +140,55 @@ app.post("/login", async (req, res) => {
       message: "Login successful",
       userId: user.userId,
       schoolId: user.schoolId || null,
-      token,
+      accessToken,
+      refreshToken
     });
   } catch (err) {
     console.error("Login error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
+// ✅ Refresh Token API
+app.post("/refresh", async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.status(401).json({ message: "No refresh token" });
+
+  try {
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
+
+    const user = await usersCollection.findOne({ userId: decoded.userId });
+    if (!user || !user.refreshTokens.includes(refreshToken)) {
+      return res.status(403).json({ message: "Invalid refresh token" });
+    }
+
+
+    // ❌ Check if tokenVersion mismatch (force logout if password changed)
+    if (user.tokenVersion !== decoded.tokenVersion) {
+      return res.status(403).json({ message: "Session expired" });
+    }
+
+    const newAccessToken = generateAccessToken(user);
+    const newRefreshToken = generateRefreshToken(user);
+
+    // ✅ Update stored refresh token
+    await usersCollection.updateOne(
+      { userId: user.userId, refreshTokens: refreshToken },
+      { $set: { "refreshTokens.$": newRefreshToken } }
+    );
+
+
+    res.json({
+      success: true,
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken
+    });
+  } catch (err) {
+    console.error("Refresh error:", err);
+    res.status(403).json({ message: "Invalid refresh token" });
+  }
+});
+
 
 // ✅ Check if phone exists API
 app.post("/find_users_by_phone", async (req, res) => {
@@ -224,22 +294,60 @@ function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
-  if (!token) return res.status(401).json({ message: "No token provided" });
+  if (!token) {
+    return res.status(401).json({ success: false, message: "No token provided" });
+  }
 
   jwt.verify(token, process.env.JWT_SECRET, async (err, decoded) => {
-    if (err) return res.status(403).json({ message: "Invalid token" });
+    if (err) {
+      if (err.name === "TokenExpiredError") {
+        // Token expired → frontend should call /refresh
+        return res.status(401).json({ success: false, message: "Access token expired" });
+      }
+      // Invalid token (tampered, wrong secret, etc.)
+      return res.status(403).json({ success: false, message: "Invalid token" });
+    }
 
+    // ✅ Check DB user + tokenVersion
     const user = await usersCollection.findOne({ userId: decoded.userId });
-
-    // ❌ If tokenVersion doesn't match, logout
     if (!user || user.tokenVersion !== decoded.tokenVersion) {
-      return res.status(401).json({ message: "Session expired, please log in again" });
+      return res.status(401).json({ success: false, message: "Session expired, please log in again" });
     }
 
     req.user = decoded;
     next();
   });
 }
+
+
+// ✅ Logout API (per device)
+app.post("/logout", async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) return res.status(400).json({ success: false, message: "No refresh token provided" });
+
+  try {
+    // Remove the token from user's refreshTokens array
+    await usersCollection.updateOne(
+      { refreshTokens: refreshToken },
+      { $pull: { refreshTokens: refreshToken } }
+    );
+
+    res.json({ success: true, message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout error:", error);
+    res.status(500).json({ success: false, message: "Server error during logout" });
+  }
+});
+
+app.post("/logout_all", async (req, res) => {
+  const { userId } = req.body;
+  await usersCollection.updateOne(
+    { userId },
+    { $set: { refreshTokens: [] } }
+  );
+  res.json({ success: true, message: "Logged out from all devices" });
+});
+
 
 
 connectDB().then(() => {
