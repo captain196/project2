@@ -4,6 +4,7 @@ const { MongoClient } = require("mongodb");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const nodemailer = require("nodemailer");
+const { v4: uuidv4 } = require("uuid");
 
 const app = express();
 app.use(express.json());
@@ -39,11 +40,17 @@ function generateAccessToken(user) {
 
 function generateRefreshToken(user) {
   return jwt.sign(
-    { userId: user.userId, tokenVersion: user.tokenVersion || 0 },
+    {
+      userId: user.userId,
+      tokenVersion: user.tokenVersion || 0,
+      jti: uuidv4(),  // 👈 This must be inside the payload
+      createdAt: Date.now() // 👈 ensures uniqueness
+    },
     process.env.JWT_REFRESH_SECRET,
-    { expiresIn: "60d" }   // long expiry
+    { expiresIn: "60d" }
   );
 }
+
 
 
 // ✅ Nodemailer setup
@@ -129,10 +136,9 @@ app.post("/login", async (req, res) => {
     const refreshToken = generateRefreshToken(user);
 
     // ✅ Save refresh token in DB (so we can revoke it if needed)
-    await usersCollection.updateOne(
+     await usersCollection.updateOne(
       { userId: user.userId },
-      { $push: { refreshTokens: refreshToken } }
-
+      { $push: { refreshTokens: { token: refreshToken, createdAt: new Date() } } }
     );
 
     res.json({
@@ -173,9 +179,10 @@ app.post("/refresh", async (req, res) => {
 
     // ✅ Update stored refresh token
     await usersCollection.updateOne(
-      { userId: user.userId, refreshTokens: refreshToken },
-      { $set: { "refreshTokens.$": newRefreshToken } }
+      { userId: user.userId, "refreshTokens.token": refreshToken },
+      { $set: { "refreshTokens.$.token": newRefreshToken, "refreshTokens.$.createdAt": new Date() } }
     );
+
 
 
     res.json({
@@ -328,8 +335,8 @@ app.post("/logout", async (req, res) => {
   try {
     // Remove the token from user's refreshTokens array
     await usersCollection.updateOne(
-      { refreshTokens: refreshToken },
-      { $pull: { refreshTokens: refreshToken } }
+      { "refreshTokens.token": refreshToken },
+      { $pull: { refreshTokens: { token: refreshToken } } }
     );
 
     res.json({ success: true, message: "Logged out successfully" });
@@ -354,3 +361,4 @@ connectDB().then(() => {
   const port = process.env.PORT || 3000;
   app.listen(port, () => console.log(`🚀 Server running on port ${port}`));
 });
+
