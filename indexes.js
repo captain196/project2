@@ -164,10 +164,10 @@ app.post("/refresh", async (req, res) => {
     const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET);
 
     const user = await usersCollection.findOne({ userId: decoded.userId });
-    if (!user || !user.refreshTokens.includes(refreshToken)) {
+    const storedToken = user.refreshTokens.find(rt => rt.token === refreshToken);
+    if (!storedToken) {
       return res.status(403).json({ message: "Invalid refresh token" });
     }
-
 
     // ❌ Check if tokenVersion mismatch (force logout if password changed)
     if (user.tokenVersion !== decoded.tokenVersion) {
@@ -282,7 +282,7 @@ app.post("/change_password", async (req, res) => {
       }
     );
 
-    res.json({ success: true, message: "Password updated successfully, all sessions logged out" });
+    res.json({ success: true, message: "Password updated successfully" });
   } catch (error) {
     console.error("❌ Error updating password:", error);
     res.status(500).json({ success: false, message: "Server error" });
