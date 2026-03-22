@@ -41,7 +41,7 @@ const role = (v) => {
 // ─── Pre-built schemas ───────────────────────────────────────────────────────
 
 const loginSchema = {
-  email: requiredEmail,
+  userId: required("User ID"),
   password: required("Password"),
 };
 

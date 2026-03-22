@@ -16,11 +16,19 @@ router.post("/refresh", authCtrl.refresh);
 router.post("/logout", authenticate, authCtrl.logout);
 
 // POST /api/auth/change-password  (authenticated)
-router.post(
-  "/change-password",
-  authenticate,
-  validate(changePasswordSchema),
-  authCtrl.changePassword
-);
+router.post("/change-password", authenticate, validate(changePasswordSchema), authCtrl.changePassword);
+
+// ── Password reset flow (unauthenticated) ─────────────────────────────────
+// POST /api/auth/send-otp
+router.post("/send-otp", authCtrl.sendOtp);
+
+// POST /api/auth/verify-otp
+router.post("/verify-otp", authCtrl.verifyOtp);
+
+// POST /api/auth/find-by-email
+router.post("/find-by-email", authCtrl.findByEmail);
+
+// POST /api/auth/reset-password
+router.post("/reset-password", authCtrl.resetPassword);
 
 module.exports = router;

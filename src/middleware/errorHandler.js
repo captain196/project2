@@ -3,10 +3,10 @@ const { AppError } = require("../utils/errors");
 function errorHandler(err, req, res, _next) {
   // Operational errors (thrown intentionally)
   if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
-      success: false,
-      message: err.message,
-    });
+    const body = { success: false, message: err.message };
+    if (err.code) body.code = err.code;
+    if (err.devices) body.devices = err.devices;
+    return res.status(err.statusCode).json(body);
   }
 
   // Mongoose validation errors

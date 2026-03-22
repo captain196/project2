@@ -4,6 +4,10 @@ const { comparePassword, hashPassword, hashToken } = require("../utils/hash");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
 const { AuthError, ValidationError, NotFoundError } = require("../utils/errors");
 const { getFirebasePath, MAX_REFRESH_TOKENS } = require("./userService");
+const Otp = require("../models/Otp");
+const { sendOtpEmail } = require("../utils/email");
+const User = require("../models/User");
+const crypto = require("crypto");
 
 // Roles that require device binding for mobile login
 const DEVICE_BOUND_ROLES = ["teacher", "student"];
@@ -12,11 +16,11 @@ const DEVICE_BOUND_ROLES = ["teacher", "student"];
 // deviceId is optional — when provided (mobile app), device binding is enforced
 // for teacher/student roles.
 
-async function loginUser(email, password, deviceId) {
-  if (!email || !password) throw new ValidationError("Email and password are required");
+async function loginUser(userId, password, deviceId) {
+  if (!userId || !password) throw new ValidationError("User ID and password are required");
 
-  const user = await mongoUserRepo.findByEmail(email);
-  if (!user) throw new AuthError("Invalid email or password");
+  const user = await mongoUserRepo.findByUserId(userId);
+  if (!user) throw new AuthError("Invalid user ID or password");
   if (user.status !== "Active") throw new AuthError("Account is inactive");
 
   const valid = await comparePassword(password, user.password);
@@ -89,20 +93,47 @@ async function loginUser(email, password, deviceId) {
     "AccessHistory/SA_LastLogin": now,
   }).catch(() => {});
 
-  return {
-    accessToken,
-    refreshToken,
-    user: {
-      userId: user.userId,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      schoolId: user.schoolId,
-      status: user.status,
-    },
-    firebaseProfile,
+  // Base fields — all roles
+  const userPayload = {
+    userId:     user.userId,
+    name:       user.name,
+    email:      user.email       || null,
+    phone:      user.phone       || null,
+    role:       user.role,
+    schoolId:   user.schoolId    || null,
+    schoolDisplayName: user.schoolDisplayName || null,
+    status:     user.status,
+    profilePic: user.profilePic  || null,
   };
+
+  // Student-specific fields
+  if (user.role === "student") {
+    Object.assign(userPayload, {
+      className:     user.className     || null,
+      section:       user.section       || null,
+      rollNo:        user.rollNo        || null,
+      fatherName:    user.fatherName    || null,
+      motherName:    user.motherName    || null,
+      dob:           user.dob           || null,
+      gender:        user.gender        || null,
+      admissionDate: user.admissionDate || null,
+      parentDbKey:   user.parentDbKey   || null,
+    });
+  }
+
+  // Teacher-specific fields
+  if (user.role === "teacher") {
+    Object.assign(userPayload, {
+      position:        user.position    || null,
+      department:      user.department  || null,
+      primaryRole:     user.primaryRole || null,
+      staffRoles:      user.staffRoles  || [],
+      classesAssigned: user.classesAssigned || [],
+      subjects:        user.subjects    || [],
+    });
+  }
+
+  return { accessToken, refreshToken, user: userPayload };
 }
 
 // ─── Refresh Token ────────────────────────────────────────────────────────────
@@ -170,4 +201,78 @@ async function changePassword(userId, currentPassword, newPassword) {
   return { message: "Password changed. All sessions invalidated." };
 }
 
-module.exports = { loginUser, refreshAccessToken, logoutUser, changePassword };
+// ─── Send Password Reset OTP ──────────────────────────────────────────────────
+
+async function sendPasswordResetOtp(email) {
+  if (!email) throw new ValidationError("Email is required");
+
+  const users = await User.find({ email: email.toLowerCase() }).lean();
+  if (!users.length) throw new NotFoundError("No account found with this email");
+
+  const code = crypto.randomInt(100000, 999999).toString();
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+  // Upsert OTP — one per email at a time
+  await Otp.findOneAndUpdate(
+    { email: email.toLowerCase() },
+    { userId: users[0].userId, email: email.toLowerCase(), code, expiresAt, attempts: 0, used: false },
+    { upsert: true, new: true }
+  );
+
+  const sent = await sendOtpEmail(email, users[0].name, code);
+  if (!sent) throw new Error("Failed to send OTP email. Please try again.");
+
+  return { message: "OTP sent to your email" };
+}
+
+// ─── Verify OTP ───────────────────────────────────────────────────────────────
+
+async function verifyPasswordResetOtp(email, otp) {
+  if (!email || !otp) throw new ValidationError("Email and OTP are required");
+
+  const record = await Otp.findOne({ email: email.toLowerCase(), used: false });
+  if (!record) throw new AuthError("OTP not found or already used");
+  if (record.expiresAt < new Date()) throw new AuthError("OTP has expired. Please request a new one");
+  if (record.code !== otp) {
+    record.attempts += 1;
+    await record.save();
+    throw new AuthError("Invalid OTP");
+  }
+
+  record.used = true;
+  await record.save();
+
+  return { message: "OTP verified successfully" };
+}
+
+// ─── Find Users By Email (for password reset user selection) ─────────────────
+
+async function findUsersByEmail(email) {
+  if (!email) throw new ValidationError("Email is required");
+
+  const users = await User.find({ email: email.toLowerCase() }).lean();
+  return users.map((u) => ({
+    userId: u.userId,
+    schoolId: u.schoolId,
+    email: u.email,
+    name: u.name,
+    role: u.role,
+  }));
+}
+
+// ─── Reset Password (unauthenticated, after OTP verified) ────────────────────
+
+async function resetPassword(userId, newPassword) {
+  if (!userId || !newPassword) throw new ValidationError("User ID and new password are required");
+  if (newPassword.length < 8) throw new ValidationError("Password must be at least 8 characters");
+
+  const user = await mongoUserRepo.findByUserId(userId);
+  if (!user) throw new NotFoundError("User not found");
+
+  const hashed = await hashPassword(newPassword);
+  await mongoUserRepo.updateByUserId(userId, { $set: { password: hashed, refreshTokens: [] } });
+
+  return { message: "Password reset successfully. Please log in with your new password." };
+}
+
+module.exports = { loginUser, refreshAccessToken, logoutUser, changePassword, sendPasswordResetOtp, verifyPasswordResetOtp, findUsersByEmail, resetPassword };

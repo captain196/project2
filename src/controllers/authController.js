@@ -2,8 +2,8 @@ const authService = require("../services/authService");
 
 async function login(req, res, next) {
   try {
-    const { email, password, deviceId } = req.body;
-    const result = await authService.loginUser(email, password, deviceId);
+    const { userId, password, deviceId } = req.body;
+    const result = await authService.loginUser(userId, password, deviceId);
 
     res.json({
       success: true,
@@ -53,4 +53,44 @@ async function changePassword(req, res, next) {
   }
 }
 
-module.exports = { login, refresh, logout, changePassword };
+async function sendOtp(req, res, next) {
+  try {
+    const { email } = req.body;
+    const result = await authService.sendPasswordResetOtp(email);
+    res.json({ success: true, message: result.message });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function verifyOtp(req, res, next) {
+  try {
+    const { email, otp } = req.body;
+    const result = await authService.verifyPasswordResetOtp(email, otp);
+    res.json({ success: true, message: result.message });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function findByEmail(req, res, next) {
+  try {
+    const { email } = req.body;
+    const result = await authService.findUsersByEmail(email);
+    res.json({ success: true, count: result.length, users: result });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function resetPassword(req, res, next) {
+  try {
+    const { userId, newPassword } = req.body;
+    const result = await authService.resetPassword(userId, newPassword);
+    res.json({ success: true, message: result.message });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { login, refresh, logout, changePassword, sendOtp, verifyOtp, findByEmail, resetPassword };
