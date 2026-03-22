@@ -1,0 +1,7 @@
+firebase-service-account.json
+node_modules
+.env
+.DS_Store
+.claude/worktrees
+uploads/*
+!uploads/.gitkeep
