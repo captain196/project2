@@ -1,9 +1,9 @@
 {
   "name": "project2",
   "version": "1.0.0",
-  "main": "indexes.js",
+  "main": "start.js",
   "scripts": {
-    "start": "node indexes.js"
+    "start": "node start.js"
   },
   "keywords": [],
   "author": "",

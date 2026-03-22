@@ -4,7 +4,7 @@ services:
     name: grader-auth-api
     plan: free
     buildCommand: npm install
-    startCommand: node indexes.js
+    startCommand: node start.js
     envVars:
       - key: NODE_ENV
         value: production

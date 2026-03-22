@@ -101,6 +101,13 @@ async function start() {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`   API:      http://localhost:${PORT}/api`);
     console.log(`   Health:   http://localhost:${PORT}/health`);
+
+    // Keep-alive: ping self every 14 min to prevent Render free tier from sleeping
+    if (process.env.RENDER_EXTERNAL_URL) {
+      setInterval(() => {
+        fetch(`${process.env.RENDER_EXTERNAL_URL}/health`).catch(() => {});
+      }, 14 * 60 * 1000);
+    }
   });
 }
 
