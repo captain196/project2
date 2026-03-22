@@ -181,7 +181,21 @@ async function refreshAccessToken(refreshToken) {
   const newRefreshToken = signRefreshToken(payload);
   await mongoUserRepo.addRefreshToken(user.userId, hashToken(newRefreshToken));
 
-  return { accessToken: newAccessToken, refreshToken: newRefreshToken };
+  // Re-issue Firebase custom token (Firebase custom tokens expire after 1 hour)
+  let firebaseToken = null;
+  try {
+    firebaseToken = await admin.auth().createCustomToken(user.userId, {
+      role:        user.role,
+      userId:      user.userId,
+      schoolId:    user.schoolId    || null,
+      parentDbKey: user.parentDbKey || user.schoolId || null,
+      schoolCode:  user.schoolId    || null,
+    });
+  } catch (fbErr) {
+    console.error("Firebase custom token error on refresh:", fbErr.message);
+  }
+
+  return { accessToken: newAccessToken, refreshToken: newRefreshToken, firebaseToken };
 }
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
