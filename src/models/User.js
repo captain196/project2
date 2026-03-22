@@ -18,6 +18,7 @@ const deviceSchema = new mongoose.Schema(
     boundAt: { type: Date, default: Date.now },
     lastUsedAt: { type: Date, default: Date.now },
     status: { type: String, enum: ["active", "blocked"], default: "active" },
+    fcmToken: { type: String, default: null },   // FCM push notification token
   },
   { _id: false }
 );

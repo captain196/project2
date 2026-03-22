@@ -9,6 +9,7 @@ async function login(req, res, next) {
       success: true,
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
+      firebaseToken: result.firebaseToken,
       user: result.user,
     });
   } catch (err) {
@@ -93,4 +94,17 @@ async function resetPassword(req, res, next) {
   }
 }
 
-module.exports = { login, refresh, logout, changePassword, sendOtp, verifyOtp, findByEmail, resetPassword };
+async function registerFcm(req, res, next) {
+  try {
+    const { fcmToken, deviceId } = req.body;
+    if (!fcmToken || !deviceId) {
+      return res.status(400).json({ success: false, message: "fcmToken and deviceId required" });
+    }
+    await authService.registerFcmToken(req.user.userId, fcmToken, deviceId);
+    res.json({ success: true, message: "FCM token registered" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { login, refresh, logout, changePassword, sendOtp, verifyOtp, findByEmail, resetPassword, registerFcm };

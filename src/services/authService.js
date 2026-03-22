@@ -8,6 +8,7 @@ const Otp = require("../models/Otp");
 const { sendOtpEmail } = require("../utils/email");
 const User = require("../models/User");
 const crypto = require("crypto");
+const { admin } = require("../config/firebase");
 
 // Roles that require device binding for mobile login
 const DEVICE_BOUND_ROLES = ["teacher", "student"];
@@ -133,7 +134,19 @@ async function loginUser(userId, password, deviceId) {
     });
   }
 
-  return { accessToken, refreshToken, user: userPayload };
+  // Generate Firebase custom token for RTDB Security Rules
+  let firebaseToken = null;
+  try {
+    firebaseToken = await admin.auth().createCustomToken(user.userId, {
+      role: user.role,
+      schoolId: user.schoolId || null,
+      userId: user.userId,
+    });
+  } catch (fbErr) {
+    console.error("Firebase custom token error:", fbErr.message);
+  }
+
+  return { accessToken, refreshToken, firebaseToken, user: userPayload };
 }
 
 // ─── Refresh Token ────────────────────────────────────────────────────────────
@@ -275,4 +288,10 @@ async function resetPassword(userId, newPassword) {
   return { message: "Password reset successfully. Please log in with your new password." };
 }
 
-module.exports = { loginUser, refreshAccessToken, logoutUser, changePassword, sendPasswordResetOtp, verifyPasswordResetOtp, findUsersByEmail, resetPassword };
+// ─── Register FCM Token ───────────────────────────────────────────────────────
+
+async function registerFcmToken(userId, fcmToken, deviceId) {
+  await mongoUserRepo.setFcmToken(userId, deviceId, fcmToken);
+}
+
+module.exports = { loginUser, refreshAccessToken, logoutUser, changePassword, sendPasswordResetOtp, verifyPasswordResetOtp, findUsersByEmail, resetPassword, registerFcmToken };

@@ -31,4 +31,7 @@ router.post("/find-by-email", authCtrl.findByEmail);
 // POST /api/auth/reset-password
 router.post("/reset-password", authCtrl.resetPassword);
 
+// POST /api/auth/register-fcm  (authenticated) — stores FCM token per device
+router.post("/register-fcm", authenticate, authCtrl.registerFcm);
+
 module.exports = router;

@@ -52,6 +52,14 @@ async function clearRefreshTokens(userId) {
   );
 }
 
+async function setFcmToken(userId, deviceId, fcmToken) {
+  return User.findOneAndUpdate(
+    { userId, "devices.deviceId": deviceId },
+    { $set: { "devices.$.fcmToken": fcmToken } },
+    { new: true }
+  );
+}
+
 module.exports = {
   create,
   findByUserId,
@@ -63,4 +71,5 @@ module.exports = {
   addRefreshToken,
   removeRefreshToken,
   clearRefreshTokens,
+  setFcmToken,
 };
