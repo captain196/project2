@@ -66,16 +66,13 @@ async function start() {
   try {
     const User = require("./src/models/User");
     const indexes = await User.collection.indexes();
-    // Drop any stale email indexes that are too restrictive
+    // Drop ALL email indexes — syncIndexes() will recreate the correct one
     for (const idx of indexes) {
-      if (!idx.unique || !idx.key || !idx.key.email) continue;
-      // Drop compound email+role+schoolId or old email-only — replaced by admin-only email unique
-      if (idx.key.role || idx.key.schoolId || (!idx.key.role && Object.keys(idx.key).length === 1)) {
-        try {
-          await User.collection.dropIndex(idx.name);
-          console.log(`🔧 Dropped stale email index "${idx.name}"`);
-        } catch (e) { /* index already gone */ }
-      }
+      if (!idx.key || !idx.key.email || idx.name === '_id_') continue;
+      try {
+        await User.collection.dropIndex(idx.name);
+        console.log(`🔧 Dropped email index "${idx.name}"`);
+      } catch (e) { /* index already gone */ }
     }
     // Drop compound {userId, schoolId} if it exists
     const compoundUserIdx = indexes.find(
