@@ -135,12 +135,17 @@ async function loginUser(userId, password, deviceId) {
   }
 
   // Generate Firebase custom token for RTDB Security Rules
+  // Claims must include parentDbKey + schoolId so Security Rules can
+  // restrict reads to Users/Parents/{parentDbKey}/{userId}/ and
+  // Schools/{schoolId}/ subtrees only.
   let firebaseToken = null;
   try {
     firebaseToken = await admin.auth().createCustomToken(user.userId, {
-      role: user.role,
-      schoolId: user.schoolId || null,
-      userId: user.userId,
+      role:        user.role,
+      userId:      user.userId,
+      schoolId:    user.schoolId    || null,
+      parentDbKey: user.parentDbKey || user.schoolId || null,
+      schoolCode:  user.schoolId    || null,
     });
   } catch (fbErr) {
     console.error("Firebase custom token error:", fbErr.message);
