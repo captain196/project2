@@ -200,12 +200,24 @@ async function refreshAccessToken(refreshToken) {
 
 // ─── Logout ───────────────────────────────────────────────────────────────────
 
-async function logoutUser(userId, refreshToken) {
+async function logoutUser(userId, refreshToken, deviceId) {
   if (refreshToken) {
     await mongoUserRepo.removeRefreshToken(userId, hashToken(refreshToken));
   } else {
     await mongoUserRepo.clearRefreshTokens(userId);
   }
+
+  // Remove device binding on logout
+  if (deviceId) {
+    try {
+      await mongoUserRepo.updateByUserId(userId, {
+        $pull: { devices: { deviceId } },
+      });
+    } catch (e) {
+      console.warn("Failed to remove device on logout:", e.message);
+    }
+  }
+
   return { message: "Logged out successfully" };
 }
 

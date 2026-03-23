@@ -1,0 +1,172 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "Indexes": {
+      "School_codes": {
+        ".read": true
+      }
+    },
+
+    "Schools": {
+      "$schoolCode": {
+        ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+        ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')",
+
+        "Communication": {
+          "Notices": {
+            ".read": "auth != null && auth.token.schoolCode == $schoolCode"
+          },
+          "Messages": {
+            "Inbox": {
+              "parent": {
+                "$parentDbKey": {
+                  ".read": "auth != null && auth.token.schoolCode == $schoolCode && auth.token.parentDbKey == $parentDbKey",
+                  ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.parentDbKey == $parentDbKey || auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+                }
+              },
+              "teacher": {
+                "$teacherId": {
+                  ".read": "auth != null && auth.token.schoolCode == $schoolCode && (auth.uid == $teacherId || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')",
+                  ".write": "auth != null && auth.token.schoolCode == $schoolCode"
+                }
+              }
+            },
+            "Chat": {
+              "$conversationId": {
+                ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+                ".write": "auth != null && auth.token.schoolCode == $schoolCode"
+              }
+            }
+          }
+        },
+
+        "Social": {
+          "Stories": {
+            ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+            "$teacherId": {
+              ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.uid == $teacherId && auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+            }
+          },
+          "Highlights": {
+            ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+            ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+          },
+          "StoryViews": {
+            ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+            ".write": "auth != null && auth.token.schoolCode == $schoolCode"
+          }
+        },
+
+        "Events": {
+          ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+          ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+        },
+
+        "Gallery": {
+          ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+          "Albums": {
+            ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+          },
+          "Media": {
+            ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+          }
+        },
+
+        "$session": {
+          ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+
+          "Homework": {
+            ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+          },
+
+          "Results": {
+            "Marks": {
+              ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+            },
+            "Computed": {
+              ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+            }
+          },
+
+          "Teachers": {
+            "$teacherId": {
+              ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+              ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.uid == $teacherId || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+            }
+          },
+
+          "$class": {
+            "$section": {
+              "Students": {
+                "$studentId": {
+                  "Attendance": {
+                    ".read": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.userId == $studentId || auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')",
+                    ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+                  }
+                }
+              },
+              "Time_table": {
+                ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+                ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+              },
+              "Exams": {
+                ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+                ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+              }
+            }
+          },
+
+          "Accounts": {
+            "Fees": {
+              ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+              ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+            }
+          }
+        }
+      }
+    },
+
+    "HomeworkStatus": {
+      "$schoolCode": {
+        ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+        "$hwId": {
+          "$studentId": {
+            ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+          }
+        }
+      }
+    },
+
+    "StudentFlags": {
+      "$schoolCode": {
+        ".read": "auth != null && auth.token.schoolCode == $schoolCode",
+        "$studentId": {
+          "$flagId": {
+            ".write": "auth != null && auth.token.schoolCode == $schoolCode && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+          }
+        }
+      }
+    },
+
+    "Users": {
+      "Parents": {
+        "$schoolId": {
+          "$studentId": {
+            ".read": "auth != null && (auth.token.userId == $studentId || auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')",
+            ".write": "auth != null && (auth.token.role == 'teacher' || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+          }
+        }
+      },
+      "Teachers": {
+        "$schoolId": {
+          "$teacherId": {
+            ".read": "auth != null && (auth.token.schoolId == $schoolId || auth.token.role == 'super_admin')",
+            ".write": "auth != null && (auth.uid == $teacherId || auth.token.role == 'admin' || auth.token.role == 'school_super_admin' || auth.token.role == 'super_admin')"
+          }
+        }
+      }
+    }
+  }
+}

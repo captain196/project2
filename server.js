@@ -35,11 +35,13 @@ const authRoutes = require("./src/routes/authRoutes");
 const userRoutes = require("./src/routes/userRoutes");
 const schoolRoutes = require("./src/routes/schoolRoutes");
 const internalRoutes = require("./src/routes/internalRoutes");
+const notificationRoutes = require("./src/routes/notificationRoutes");
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/schools", schoolRoutes);
 app.use("/internal", internalRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // ─── Health check (public) ──────────────────────────────────────────────────
 app.get("/health", (req, res) => {

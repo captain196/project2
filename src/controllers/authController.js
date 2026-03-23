@@ -30,8 +30,8 @@ async function refresh(req, res, next) {
 
 async function logout(req, res, next) {
   try {
-    const { refreshToken } = req.body;
-    const result = await authService.logoutUser(req.user.userId, refreshToken);
+    const { refreshToken, deviceId } = req.body;
+    const result = await authService.logoutUser(req.user.userId, refreshToken, deviceId);
 
     res.json({ success: true, ...result });
   } catch (err) {
