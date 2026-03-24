@@ -203,6 +203,44 @@ router.post("/sync-admin", async (req, res) => {
     }
 
     await User.findOneAndUpdate({ userId: adminId }, update, { upsert: true, new: true });
+
+    // ── Dual-write: sync to Firestore 'schoolsync' database ──
+    try {
+      const firestoreRepo = require("../repositories/firestoreRepo");
+      const collection = (mappedRole === "teacher") ? "staff" : "staff";
+      await firestoreRepo.setDoc(collection, adminId, {
+        userId: adminId,
+        name: name || "",
+        email: email ? email.toLowerCase() : "",
+        phone: phone || "",
+        role: mappedRole,
+        schoolId: schoolCode || schoolId || "",
+        loginCode: schoolId || "",
+        department: department || "Administration",
+        position: position || mappedRole,
+        subjects: Array.isArray(subjects) ? subjects : [],
+        classesAssigned: Array.isArray(classesAssigned) ? classesAssigned : [],
+        gender: gender || "",
+        profilePic: profilePic || "",
+        status: "Active",
+        syncedAt: firestoreRepo.serverTimestamp(),
+        syncSource: "sync-admin",
+      }, { merge: true });
+
+      await firestoreRepo.setDoc("users", adminId, {
+        userId: adminId,
+        name: name || "",
+        email: email ? email.toLowerCase() : "",
+        role: mappedRole,
+        schoolId: schoolCode || schoolId || "",
+        profilePic: profilePic || "",
+        status: "Active",
+        syncedAt: firestoreRepo.serverTimestamp(),
+      }, { merge: true });
+    } catch (fsErr) {
+      console.error("Firestore sync-admin error (non-fatal):", fsErr.message);
+    }
+
     res.json({ success: true, message: "Admin synced", adminId });
   } catch (error) {
     console.error("Internal sync-admin error:", error);
@@ -711,6 +749,46 @@ router.post("/sync-student", async (req, res) => {
       { upsert: true, new: true }
     );
 
+    // ── Dual-write: sync to Firestore 'schoolsync' database ──
+    try {
+      const firestoreRepo = require("../repositories/firestoreRepo");
+      await firestoreRepo.setDoc("students", studentId, {
+        userId: studentId,
+        name: name || "",
+        email: email ? email.toLowerCase() : "",
+        phone: phone || "",
+        schoolId: schoolCode || schoolId || "",
+        loginCode: schoolId || "",
+        className: (className || "").replace("Class ", ""),
+        section: (section || "").replace("Section ", ""),
+        rollNo: rollNo || "",
+        fatherName: fatherName || "",
+        motherName: motherName || "",
+        dob: dob || "",
+        gender: gender || "",
+        admissionDate: admissionDate || "",
+        parentDbKey: parentDbKey || schoolId || "",
+        profilePic: profilePic || "",
+        status: "Active",
+        session: "",
+        syncedAt: firestoreRepo.serverTimestamp(),
+        syncSource: "sync-student",
+      }, { merge: true });
+
+      await firestoreRepo.setDoc("users", studentId, {
+        userId: studentId,
+        name: name || "",
+        email: email ? email.toLowerCase() : "",
+        role: "student",
+        schoolId: schoolCode || schoolId || "",
+        profilePic: profilePic || "",
+        status: "Active",
+        syncedAt: firestoreRepo.serverTimestamp(),
+      }, { merge: true });
+    } catch (fsErr) {
+      console.error("Firestore sync-student error (non-fatal):", fsErr.message);
+    }
+
     res.json({ success: true, message: "Student synced", studentId, mongoId: doc._id });
   } catch (error) {
     console.error("Internal sync-student error:", error.message, error.code, error.keyPattern);
@@ -1216,6 +1294,38 @@ router.post("/list-devices", async (req, res) => {
   } catch (error) {
     console.error("Internal list-devices error:", error);
     res.status(500).json({ success: false, message: "Failed to list devices" });
+  }
+});
+
+// ─── POST /internal/sync-to-firestore ──────────────────────────────────────────
+// Syncs entity data from admin panel to Firestore.
+// Body: { entity: "schools"|"staff"|"students"|"parents"|"sections"|"users", id: string, data: object }
+
+router.post("/sync-to-firestore", async (req, res) => {
+  try {
+    const { entity, id, data } = req.body;
+    if (!entity || !id) {
+      return res.status(400).json({ success: false, message: "entity and id required" });
+    }
+
+    const firestoreRepo = require("../repositories/firestoreRepo");
+    const validEntities = ["schools", "staff", "students", "parents", "sections", "users"];
+    if (!validEntities.includes(entity)) {
+      return res.status(400).json({ success: false, message: `Invalid entity: ${entity}` });
+    }
+
+    const docData = {
+      ...data,
+      syncedAt: firestoreRepo.serverTimestamp(),
+      syncSource: "admin_panel",
+    };
+
+    await firestoreRepo.setDoc(entity, id, docData, { merge: true });
+
+    res.json({ success: true, message: `Synced ${entity}/${id} to Firestore` });
+  } catch (err) {
+    console.error("sync-to-firestore error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 

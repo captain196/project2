@@ -1,5 +1,6 @@
 const mongoUserRepo = require("../repositories/mongoUserRepo");
 const firebaseUserRepo = require("../repositories/firebaseUserRepo");
+const firestoreRepo = require("../repositories/firestoreRepo");
 const { comparePassword, hashPassword, hashToken } = require("../utils/hash");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
 const { AuthError, ValidationError, NotFoundError } = require("../utils/errors");
@@ -143,12 +144,29 @@ async function loginUser(userId, password, deviceId) {
     firebaseToken = await admin.auth().createCustomToken(user.userId, {
       role:        user.role,
       userId:      user.userId,
-      schoolId:    user.schoolId    || null,
-      parentDbKey: user.parentDbKey || user.schoolId || null,
-      schoolCode:  user.schoolId    || null,
+      schoolId:    user.schoolCode  || user.schoolId || null,  // Firebase school key (SCH_XXX) for Firestore rules
+      loginCode:   user.schoolId    || null,                   // Login code (10005) for RTDB paths
+      parentDbKey: user.parentDbKey || user.schoolCode || user.schoolId || null,
+      schoolCode:  user.schoolCode  || user.schoolId || null,
     });
   } catch (fbErr) {
     console.error("Firebase custom token error:", fbErr.message);
+  }
+
+  // ── Dual-write: sync user to Firestore 'schoolsync' database ──
+  try {
+    await firestoreRepo.setDoc("users", user.userId, {
+      userId: user.userId,
+      name: userPayload.name || "",
+      email: userPayload.email || "",
+      role: user.role,
+      schoolId: user.schoolCode || user.schoolId || "",
+      profilePic: userPayload.profilePic || "",
+      status: user.status,
+      lastLoginAt: firestoreRepo.serverTimestamp(),
+    }, { merge: true });
+  } catch (fsErr) {
+    console.error("Firestore user sync error (non-fatal):", fsErr.message);
   }
 
   return { accessToken, refreshToken, firebaseToken, user: userPayload };
@@ -187,9 +205,10 @@ async function refreshAccessToken(refreshToken) {
     firebaseToken = await admin.auth().createCustomToken(user.userId, {
       role:        user.role,
       userId:      user.userId,
-      schoolId:    user.schoolId    || null,
-      parentDbKey: user.parentDbKey || user.schoolId || null,
-      schoolCode:  user.schoolId    || null,
+      schoolId:    user.schoolCode  || user.schoolId || null,
+      loginCode:   user.schoolId    || null,
+      parentDbKey: user.parentDbKey || user.schoolCode || user.schoolId || null,
+      schoolCode:  user.schoolCode  || user.schoolId || null,
     });
   } catch (fbErr) {
     console.error("Firebase custom token error on refresh:", fbErr.message);
