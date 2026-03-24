@@ -2,19 +2,29 @@ const nodemailer = require("nodemailer");
 
 let transporter = null;
 
+const SMTP_TIMEOUT = 10000; // 10 seconds
+
 function getTransporter() {
   if (!transporter) {
     transporter = nodemailer.createTransport({
-      service: "gmail",
+      host: "smtp.gmail.com",
+      port: 587,
+      secure: false,
       auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      connectionTimeout: SMTP_TIMEOUT,
+      greetingTimeout: SMTP_TIMEOUT,
+      socketTimeout: SMTP_TIMEOUT,
     });
   }
   return transporter;
 }
 
+/**
+ * Send OTP email with a hard timeout to prevent request hangs.
+ */
 async function sendOtpEmail(toEmail, toName, otpCode) {
   const mailOptions = {
     from: `"GraderIQ" <${process.env.EMAIL_USER}>`,
@@ -42,16 +52,24 @@ async function sendOtpEmail(toEmail, toName, otpCode) {
     `,
   };
 
+  // Wrap in a hard timeout so the HTTP request never hangs
+  const sendWithTimeout = (attempt) =>
+    Promise.race([
+      getTransporter().sendMail(mailOptions),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`SMTP timeout after ${SMTP_TIMEOUT}ms`)), SMTP_TIMEOUT + 2000)
+      ),
+    ]);
+
   try {
-    const info = await getTransporter().sendMail(mailOptions);
+    const info = await sendWithTimeout(1);
     console.log("OTP email sent:", info.messageId);
     return true;
   } catch (err) {
     console.error("Email send error (attempt 1):", err.message);
-    // Reset cached transporter and retry with fresh credentials
     transporter = null;
     try {
-      const info = await getTransporter().sendMail(mailOptions);
+      const info = await sendWithTimeout(2);
       console.log("OTP email sent (retry):", info.messageId);
       return true;
     } catch (retryErr) {
