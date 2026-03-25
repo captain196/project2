@@ -25,11 +25,24 @@ function requireInternalKey(req, res, next) {
   next();
 }
 
-// Rate limit: 30 requests/minute per IP per endpoint
+// Rate limit: 30 requests/minute per IP per endpoint (general internal endpoints)
 const internalLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   max: 30,
   keyFn: (req) => `internal:${getClientIp(req)}:${req.path}`,
+});
+
+// Tighter rate limits for sensitive endpoints
+const webLoginLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 10,
+  keyFn: (req) => `internal-login:${getClientIp(req)}`,
+});
+
+const resetPasswordLimiter = createRateLimiter({
+  windowMs: 60 * 1000,
+  max: 5,
+  keyFn: (req) => `internal-reset:${getClientIp(req)}`,
 });
 
 router.use(requireInternalKey);
@@ -37,30 +50,75 @@ router.use(internalLimiter);
 
 // ─── POST /internal/web-login ─────────────────────────────────────────────────
 
-router.post("/web-login", async (req, res) => {
+const LOCKOUT_DURATION_MS = 30 * 60 * 1000; // 30 minutes
+const MAX_LOGIN_ATTEMPTS = 5;
+
+router.post("/web-login", webLoginLimiter, async (req, res) => {
   try {
-    const { adminId, password } = req.body;
+    const { adminId, password, schoolCode: reqSchoolCode } = req.body;
     if (!adminId || !password) {
       return res.status(400).json({ success: false, message: "adminId and password required" });
+    }
+    if (typeof adminId !== "string" || typeof password !== "string") {
+      return res.status(400).json({ success: false, message: "Invalid input types" });
     }
 
     // Look up user directly by userId in MongoDB — schoolCode is resolved from the record
     const user = await mongoUserRepo.findByUserId(adminId);
 
     if (!user || user.status !== "Active") {
+      console.info(`AUTH_AUDIT: LOGIN_FAILURE | user=${adminId} | ip=${req.ip} | type=web | reason=${!user ? 'user_not_found' : 'account_inactive'}`);
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
-    const valid = await comparePassword(password, user.password);
-    if (!valid && user.password.startsWith("$2")) {
-      return res.status(401).json({ success: false, message: "Invalid credentials" });
-    }
-    if (!valid && !user.password.startsWith("$2")) {
-      if (password !== user.password) {
+    // School context check: validate schoolCode matches for non-super-admin users
+    if (reqSchoolCode && user.role !== "super_admin") {
+      if (user.schoolId !== reqSchoolCode && user.schoolCode !== reqSchoolCode) {
+        console.warn(`Web-login school mismatch: userId=${adminId}, expected=${reqSchoolCode}, actual schoolId=${user.schoolId} schoolCode=${user.schoolCode}`);
+        console.info(`AUTH_AUDIT: LOGIN_FAILURE | user=${adminId} | ip=${req.ip} | type=web | reason=school_mismatch`);
         return res.status(401).json({ success: false, message: "Invalid credentials" });
       }
-      const upgraded = await hashPassword(password);
+    }
+
+    // Check account lockout
+    if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+      const remainingMs = new Date(user.lockedUntil).getTime() - Date.now();
+      const remainingMin = Math.ceil(remainingMs / 60000);
+      return res.status(423).json({
+        success: false,
+        message: `Account temporarily locked. Try again in ${remainingMin} minute(s).`,
+      });
+    }
+
+    // If password is not bcrypt-hashed (legacy plaintext), hash it first, then compare
+    let passwordToCompare = user.password;
+    if (!user.password.startsWith("$2")) {
+      // Legacy plaintext password — upgrade immediately
+      const upgraded = await hashPassword(user.password);
       await mongoUserRepo.updateByUserId(user.userId, { $set: { password: upgraded } });
+      passwordToCompare = upgraded;
+    }
+
+    // Always use bcrypt.compare (never direct string comparison)
+    const valid = await comparePassword(password, passwordToCompare);
+    if (!valid) {
+      // Increment failed login attempts
+      const newAttempts = (user.loginAttempts || 0) + 1;
+      const updateFields = { $set: { loginAttempts: newAttempts } };
+      if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+        updateFields.$set.lockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS);
+        console.warn(`Account locked after ${MAX_LOGIN_ATTEMPTS} failed attempts: userId=${adminId}`);
+      }
+      await mongoUserRepo.updateByUserId(user.userId, updateFields);
+      console.info(`AUTH_AUDIT: LOGIN_FAILURE | user=${adminId} | ip=${req.ip} | type=web | reason=invalid_password | attempts=${newAttempts}`);
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    // Successful login — reset lockout counters
+    if (user.loginAttempts > 0 || user.lockedUntil) {
+      await mongoUserRepo.updateByUserId(user.userId, {
+        $set: { loginAttempts: 0, lockedUntil: null },
+      });
     }
 
     // schoolId = login code (e.g. 10005) — used for Users/Admin/{schoolId}/
@@ -111,6 +169,8 @@ router.post("/web-login", async (req, res) => {
     const accessToken = signAccessToken(payload);
     const refreshToken = signRefreshToken(payload);
     await mongoUserRepo.addRefreshToken(user.userId, hashToken(refreshToken));
+
+    console.info(`AUTH_AUDIT: LOGIN_SUCCESS | user=${adminId} | ip=${req.ip} | type=web | role=${user.role}`);
 
     res.json({
       success: true,
@@ -264,11 +324,17 @@ router.post("/delete-admin", async (req, res) => {
 
 // ─── POST /internal/reset-password ────────────────────────────────────────────
 
-router.post("/reset-password", async (req, res) => {
+router.post("/reset-password", resetPasswordLimiter, async (req, res) => {
   try {
     const { adminId, passwordHash } = req.body;
     if (!adminId || !passwordHash) return res.status(400).json({ success: false, message: "adminId and passwordHash required" });
-    const result = await mongoUserRepo.updateByUserId(adminId, { $set: { password: passwordHash, refreshTokens: [] } });
+    if (typeof adminId !== "string" || typeof passwordHash !== "string") {
+      return res.status(400).json({ success: false, message: "Invalid input types" });
+    }
+
+    // passwordHash field actually receives PLAINTEXT password — hash it before storing
+    const hashed = await hashPassword(passwordHash);
+    const result = await mongoUserRepo.updateByUserId(adminId, { $set: { password: hashed, refreshTokens: [] } });
     res.json({ success: true, message: result ? "Password reset" : "Admin not found" });
   } catch (error) {
     console.error("Internal reset-password error:", error);
@@ -759,8 +825,8 @@ router.post("/sync-student", async (req, res) => {
         phone: phone || "",
         schoolId: schoolCode || schoolId || "",
         loginCode: schoolId || "",
-        className: (className || "").replace("Class ", ""),
-        section: (section || "").replace("Section ", ""),
+        className: className || "",
+        section: section || "",
         rollNo: rollNo || "",
         fatherName: fatherName || "",
         motherName: motherName || "",
@@ -822,21 +888,48 @@ const mobileAppLoginHandler = async (req, res) => {
     // 1. Find user — userId is globally unique (all IDs from central counter)
     const user = await mongoUserRepo.findByUserId(studentId);
     if (!user || user.status !== "Active") {
+      console.info(`AUTH_AUDIT: LOGIN_FAILURE | user=${studentId} | ip=${req.ip} | type=mobile | deviceId=${device.deviceId} | reason=${!user ? 'user_not_found' : 'account_inactive'}`);
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
-    // 2. Verify password (supports bcrypt + legacy plain-text upgrade)
-    const valid = await comparePassword(password, user.password);
-    if (!valid) {
-      if (user.password.startsWith("$2")) {
-        return res.status(401).json({ success: false, message: "Invalid credentials" });
-      }
-      if (password !== user.password) {
-        return res.status(401).json({ success: false, message: "Invalid credentials" });
-      }
-      // Upgrade plain-text to bcrypt
-      const upgraded = await hashPassword(password);
+    // 1b. Check account lockout
+    if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+      const remainingMs = new Date(user.lockedUntil).getTime() - Date.now();
+      const remainingMin = Math.ceil(remainingMs / 60000);
+      return res.status(423).json({
+        success: false,
+        message: `Account temporarily locked. Try again in ${remainingMin} minute(s).`,
+      });
+    }
+
+    // 2. Verify password — if legacy plaintext, hash it first then always use bcrypt
+    let passwordToCompare = user.password;
+    if (!user.password.startsWith("$2")) {
+      // Legacy plaintext password — upgrade immediately
+      const upgraded = await hashPassword(user.password);
       await mongoUserRepo.updateByUserId(user.userId, { $set: { password: upgraded } });
+      passwordToCompare = upgraded;
+    }
+
+    const valid = await comparePassword(password, passwordToCompare);
+    if (!valid) {
+      // Increment failed login attempts
+      const newAttempts = (user.loginAttempts || 0) + 1;
+      const updateFields = { $set: { loginAttempts: newAttempts } };
+      if (newAttempts >= MAX_LOGIN_ATTEMPTS) {
+        updateFields.$set.lockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS);
+        console.warn(`Mobile account locked after ${MAX_LOGIN_ATTEMPTS} failed attempts: userId=${studentId}`);
+      }
+      await mongoUserRepo.updateByUserId(user.userId, updateFields);
+      console.info(`AUTH_AUDIT: LOGIN_FAILURE | user=${studentId} | ip=${req.ip} | type=mobile | reason=invalid_password | attempts=${newAttempts}`);
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
+    }
+
+    // Successful login — reset lockout counters
+    if (user.loginAttempts > 0 || user.lockedUntil) {
+      await mongoUserRepo.updateByUserId(user.userId, {
+        $set: { loginAttempts: 0, lockedUntil: null },
+      });
     }
 
     // 3. Device binding check
@@ -929,6 +1022,8 @@ const mobileAppLoginHandler = async (req, res) => {
         };
       }
     }
+
+    console.info(`AUTH_AUDIT: LOGIN_SUCCESS | user=${user.userId} | ip=${req.ip} | type=mobile | deviceId=${device.deviceId} | role=${user.role}`);
 
     res.json({
       success: true,

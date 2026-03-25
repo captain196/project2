@@ -42,7 +42,11 @@ function createRateLimiter({ windowMs, max, keyFn }) {
 }
 
 function getClientIp(req) {
-  return req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || "unknown";
+  // Only trust X-Forwarded-For when running behind a trusted reverse proxy
+  if (process.env.TRUST_PROXY) {
+    return req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip || req.socket.remoteAddress || "unknown";
+  }
+  return req.ip || req.socket.remoteAddress || "unknown";
 }
 
 // Pre-built limiters

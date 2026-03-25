@@ -11,6 +11,11 @@ const User = require("../models/User");
 const crypto = require("crypto");
 const { admin } = require("../config/firebase");
 
+// Helper: hash OTP code with SHA-256 before storing/comparing
+function hashOtp(code) {
+  return crypto.createHash("sha256").update(code).digest("hex");
+}
+
 // Roles that require device binding for mobile login
 const DEVICE_BOUND_ROLES = ["teacher", "student"];
 
@@ -20,13 +25,24 @@ const DEVICE_BOUND_ROLES = ["teacher", "student"];
 
 async function loginUser(userId, password, deviceId) {
   if (!userId || !password) throw new ValidationError("User ID and password are required");
+  if (typeof userId !== "string" || typeof password !== "string") throw new ValidationError("Invalid input types");
 
   const user = await mongoUserRepo.findByUserId(userId);
-  if (!user) throw new AuthError("Invalid user ID or password");
-  if (user.status !== "Active") throw new AuthError("Account is inactive");
+  if (!user) {
+    // Log actual reason server-side, return generic message to client
+    console.warn(`Login failed: user not found — userId=${userId}`);
+    throw new AuthError("Invalid credentials");
+  }
+  if (user.status !== "Active") {
+    console.warn(`Login failed: account inactive — userId=${userId}`);
+    throw new AuthError("Invalid credentials");
+  }
 
   const valid = await comparePassword(password, user.password);
-  if (!valid) throw new AuthError("Invalid email or password");
+  if (!valid) {
+    console.warn(`Login failed: invalid password — userId=${userId}`);
+    throw new AuthError("Invalid credentials");
+  }
 
   // ── Device binding check for mobile logins ──
   if (deviceId && DEVICE_BOUND_ROLES.includes(user.role)) {
@@ -169,6 +185,8 @@ async function loginUser(userId, password, deviceId) {
     console.error("Firestore user sync error (non-fatal):", fsErr.message);
   }
 
+  console.info(`AUTH_AUDIT: LOGIN_SUCCESS | user=${user.userId} | type=mobile | role=${user.role}${deviceId ? ` | deviceId=${deviceId}` : ''}`);
+
   return { accessToken, refreshToken, firebaseToken, user: userPayload };
 }
 
@@ -184,15 +202,38 @@ async function refreshAccessToken(refreshToken) {
     throw new AuthError("Invalid or expired refresh token");
   }
 
+  // Validate JWT payload structure — reject tokens with missing required fields
+  if (!decoded.userId || !decoded.role) {
+    throw new AuthError("Malformed token: missing required fields");
+  }
+
   const user = await mongoUserRepo.findByUserId(decoded.userId);
   if (!user || user.status !== "Active") throw new AuthError("User not found or inactive");
 
   const tokenHash = hashToken(refreshToken);
   const tokenExists = user.refreshTokens.some((t) => t.tokenHash === tokenHash);
-  if (!tokenExists) throw new AuthError("Refresh token revoked");
 
-  // Rotate tokens
+  if (!tokenExists) {
+    // Token hash not found — it was already used (possible replay attack).
+    // Revoke ALL refresh tokens for this user as a security precaution.
+    console.warn(`Refresh token replay detected — revoking all tokens for userId=${user.userId}`);
+    await mongoUserRepo.clearRefreshTokens(user.userId);
+    throw new AuthError("Suspicious activity detected. All sessions have been revoked. Please log in again.");
+  }
+
+  // Remove the old token BEFORE issuing a new one (prevents replay window)
   await mongoUserRepo.removeRefreshToken(user.userId, tokenHash);
+
+  // Check session idle timeout (reject if no activity in 24 hours)
+  if (user.lastActivityAt) {
+    const idleMs = Date.now() - new Date(user.lastActivityAt).getTime();
+    const IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours
+    if (idleMs > IDLE_TIMEOUT_MS) {
+      console.warn(`Session idle timeout — userId=${user.userId}, last activity ${Math.round(idleMs / 3600000)}h ago`);
+      await mongoUserRepo.clearRefreshTokens(user.userId);
+      throw new AuthError("Session expired due to inactivity. Please log in again.");
+    }
+  }
 
   const payload = { userId: user.userId, role: user.role, schoolId: user.schoolId };
   const newAccessToken = signAccessToken(payload);
@@ -273,12 +314,13 @@ async function sendPasswordResetOtp(email) {
   if (!users.length) throw new NotFoundError("No account found with this email");
 
   const code = crypto.randomInt(100000, 999999).toString();
+  const hashedCode = hashOtp(code);
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-  // Upsert OTP — one per email at a time
+  // Upsert OTP — one per email at a time (store hashed, never plaintext)
   await Otp.findOneAndUpdate(
     { email: email.toLowerCase() },
-    { userId: users[0].userId, email: email.toLowerCase(), code, expiresAt, attempts: 0, used: false },
+    { userId: users[0].userId, email: email.toLowerCase(), code: hashedCode, expiresAt, attempts: 0, used: false },
     { upsert: true, new: true }
   );
 
@@ -296,8 +338,22 @@ async function verifyPasswordResetOtp(email, otp) {
   const record = await Otp.findOne({ email: email.toLowerCase(), used: false });
   if (!record) throw new AuthError("OTP not found or already used");
   if (record.expiresAt < new Date()) throw new AuthError("OTP has expired. Please request a new one");
-  if (record.code !== otp) {
+
+  // Lockout after 5 failed attempts
+  if (record.attempts >= 5) {
+    record.used = true;
+    await record.save();
+    throw new AuthError("Too many failed attempts. Request a new OTP.");
+  }
+
+  // Compare hashed OTP (never store or compare plaintext)
+  const hashedInput = hashOtp(otp);
+  if (hashedInput !== record.code) {
     record.attempts += 1;
+    // If this attempt is the 5th, also lock it out immediately
+    if (record.attempts >= 5) {
+      record.used = true;
+    }
     await record.save();
     throw new AuthError("Invalid OTP");
   }

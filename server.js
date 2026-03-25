@@ -11,20 +11,35 @@ validateEnv();
 const express = require("express");
 const helmet = require("helmet");
 const cors = require("cors");
+const crypto = require("crypto");
 
 const app = express();
 
 app.use(helmet());
+
+// ─── Request ID for tracing auth failures across logs ──────────────────────
+app.use((req, res, next) => {
+  req.requestId = crypto.randomUUID();
+  res.setHeader('X-Request-Id', req.requestId);
+  next();
+});
+
+// ─── CORS — credentials: true requires explicit origins (no wildcard) ──────
 app.use(
   cors({
     origin: process.env.ALLOWED_ORIGINS
       ? process.env.ALLOWED_ORIGINS.split(",").map((s) => s.trim())
       : ["http://localhost", "http://localhost:3000"],
+    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Internal-Key"],
   })
 );
 app.use(express.json({ limit: "50kb" }));
+
+// ─── NoSQL injection prevention ─────────────────────────────────────────────
+const { sanitize } = require("./src/middleware/sanitize");
+app.use(sanitize);
 
 // ─── Rate limiter (global) ──────────────────────────────────────────────────
 const { apiLimiter } = require("./src/middleware/rateLimiter");
@@ -46,6 +61,14 @@ app.use("/api/notifications", notificationRoutes);
 // ─── Health check (public) ──────────────────────────────────────────────────
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// ─── 404 catch-all (must be AFTER all routes, BEFORE error handler) ─────────
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.originalUrl}`,
+  });
 });
 
 // ─── Error handler ──────────────────────────────────────────────────────────

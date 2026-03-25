@@ -67,6 +67,13 @@ const userSchema = new mongoose.Schema(
     devices: { type: [deviceSchema], default: [] },
     parentPhone: { type: String, default: null },    // Parent's phone for OTP on new device binding
     deviceBindingMethod: { type: String, enum: ["otp", "auto"], default: "otp" }, // "otp" = OTP required for new devices
+
+    // ── Account lockout (brute-force protection) ──
+    loginAttempts: { type: Number, default: 0 },
+    lockedUntil: { type: Date, default: null },
+
+    // ── Session idle timeout tracking ──
+    lastActivityAt: { type: Date, default: null },
   },
   {
     timestamps: false,
