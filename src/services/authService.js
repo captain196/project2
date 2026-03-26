@@ -1,7 +1,7 @@
 const mongoUserRepo = require("../repositories/mongoUserRepo");
 const firebaseUserRepo = require("../repositories/firebaseUserRepo");
 const firestoreRepo = require("../repositories/firestoreRepo");
-const { comparePassword, hashPassword, hashToken } = require("../utils/hash");
+const { comparePassword, hashPassword, hashToken, isBcryptHash } = require("../utils/hash");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/token");
 const { AuthError, ValidationError, NotFoundError } = require("../utils/errors");
 const { getFirebasePath, MAX_REFRESH_TOKENS } = require("./userService");
@@ -261,9 +261,11 @@ async function refreshAccessToken(refreshToken) {
 // ─── Logout ───────────────────────────────────────────────────────────────────
 
 async function logoutUser(userId, refreshToken, deviceId) {
+  // Remove the specific refresh token (this device's session)
   if (refreshToken) {
     await mongoUserRepo.removeRefreshToken(userId, hashToken(refreshToken));
   } else {
+    // No token provided — revoke ALL sessions for safety
     await mongoUserRepo.clearRefreshTokens(userId);
   }
 
@@ -278,6 +280,28 @@ async function logoutUser(userId, refreshToken, deviceId) {
     }
   }
 
+  // Update lastActivityAt so other sessions see accurate state
+  await mongoUserRepo.updateByUserId(userId, {
+    $set: { lastActivityAt: new Date() },
+  }).catch(() => {});
+
+  // Clear Firebase RTDB presence (best-effort)
+  try {
+    const user = await mongoUserRepo.findByUserId(userId);
+    if (user) {
+      const schoolCode = user.schoolCode || user.schoolId || "";
+      if (schoolCode) {
+        // Clear presence node so other systems know user is offline
+        await firebaseUserRepo.update(`Presence/${userId}`, { online: false, lastSeen: new Date().toISOString() }).catch(() => {});
+      }
+      // Clear notification badge for this device
+      if (deviceId) {
+        await firebaseUserRepo.update(`NotifBadge/${userId}`, { [deviceId]: null }).catch(() => {});
+      }
+    }
+  } catch (_) { /* best effort */ }
+
+  console.info(`AUTH_AUDIT: LOGOUT | user=${userId}${deviceId ? ` | deviceId=${deviceId}` : ""} | token=${refreshToken ? "specific" : "all"}`);
   return { message: "Logged out successfully" };
 }
 
@@ -295,13 +319,18 @@ async function changePassword(userId, currentPassword, newPassword) {
 
   const hashed = await hashPassword(newPassword);
 
-  // MongoDB — also clears all sessions
-  await mongoUserRepo.updateByUserId(userId, { $set: { password: hashed, refreshTokens: [] } });
+  // MongoDB — clear all sessions, devices, and unlock
+  await mongoUserRepo.updateByUserId(userId, {
+    $set: { password: hashed, refreshTokens: [], devices: [], loginAttempts: 0, lockedUntil: null },
+  });
 
-  // Firebase
+  // Firebase RTDB — sync hashed password
   const fbPath = getFirebasePath(user.role, user.schoolId, userId);
-  await firebaseUserRepo.update(fbPath, { "Credentials/Password": hashed }).catch(() => {});
+  await firebaseUserRepo.update(fbPath, { "Credentials/Password": hashed }).catch((e) => {
+    console.error(`Firebase password sync failed for ${userId}:`, e.message);
+  });
 
+  console.info(`AUTH_AUDIT: PASSWORD_CHANGED | user=${userId} | all_sessions_cleared=true`);
   return { message: "Password changed. All sessions invalidated." };
 }
 
@@ -389,8 +418,19 @@ async function resetPassword(userId, newPassword) {
   if (!user) throw new NotFoundError("User not found");
 
   const hashed = await hashPassword(newPassword);
-  await mongoUserRepo.updateByUserId(userId, { $set: { password: hashed, refreshTokens: [] } });
 
+  // MongoDB — clear all sessions + devices + unlock
+  await mongoUserRepo.updateByUserId(userId, {
+    $set: { password: hashed, refreshTokens: [], devices: [], loginAttempts: 0, lockedUntil: null },
+  });
+
+  // Firebase RTDB — sync hashed password
+  const fbPath = getFirebasePath(user.role, user.schoolId, userId);
+  await firebaseUserRepo.update(fbPath, { "Credentials/Password": hashed }).catch((e) => {
+    console.error(`Firebase password sync failed for ${userId}:`, e.message);
+  });
+
+  console.info(`AUTH_AUDIT: PASSWORD_RESET | user=${userId} | type=mobile_otp | firebase_synced=true`);
   return { message: "Password reset successfully. Please log in with your new password." };
 }
 

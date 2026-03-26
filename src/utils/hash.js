@@ -3,12 +3,41 @@ const crypto = require("crypto");
 
 const SALT_ROUNDS = 12;
 
+/**
+ * Hash a password using bcrypt with $2b$ prefix (Node.js standard).
+ * Always produces consistent $2b$ hashes.
+ */
 async function hashPassword(plain) {
   return bcrypt.hash(plain, SALT_ROUNDS);
 }
 
+/**
+ * Compare password against a bcrypt hash.
+ * Handles all bcrypt prefixes: $2a$, $2b$, $2y$ (from PHP/other systems).
+ * Normalizes $2y$ (PHP) → $2b$ (Node) before comparison so cross-system hashes work.
+ */
 async function comparePassword(plain, hashed) {
-  return bcrypt.compare(plain, hashed);
+  if (!hashed || typeof hashed !== "string") return false;
+
+  // If it's not a bcrypt hash at all (legacy plaintext or corrupt), direct compare
+  if (!hashed.startsWith("$2")) {
+    return plain === hashed;
+  }
+
+  // Normalize $2y$ (PHP bcrypt) → $2b$ (Node bcrypt) — they are identical algorithms
+  let normalized = hashed;
+  if (hashed.startsWith("$2y$")) {
+    normalized = "$2b$" + hashed.slice(4);
+  }
+
+  return bcrypt.compare(plain, normalized);
+}
+
+/**
+ * Check if a string is a valid bcrypt hash (any variant).
+ */
+function isBcryptHash(str) {
+  return typeof str === "string" && /^\$2[aby]\$\d{2}\$.{53}$/.test(str);
 }
 
 function hashToken(token) {
@@ -38,4 +67,4 @@ function generateRandomPassword(length = 12) {
     .join("");
 }
 
-module.exports = { hashPassword, comparePassword, hashToken, generateRandomPassword };
+module.exports = { hashPassword, comparePassword, hashToken, generateRandomPassword, isBcryptHash };

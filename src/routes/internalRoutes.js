@@ -6,7 +6,7 @@ const { Router } = require("express");
 const crypto = require("crypto");
 const mongoUserRepo = require("../repositories/mongoUserRepo");
 const firebaseUserRepo = require("../repositories/firebaseUserRepo");
-const { hashPassword, comparePassword, hashToken } = require("../utils/hash");
+const { hashPassword, comparePassword, hashToken, isBcryptHash } = require("../utils/hash");
 const { signAccessToken, signRefreshToken } = require("../utils/token");
 const { getFirebasePath } = require("../services/userService");
 const User = require("../models/User");
@@ -90,16 +90,17 @@ router.post("/web-login", webLoginLimiter, async (req, res) => {
       });
     }
 
-    // If password is not bcrypt-hashed (legacy plaintext), hash it first, then compare
+    // If password is not a valid bcrypt hash (legacy plaintext or corrupt), upgrade it
     let passwordToCompare = user.password;
-    if (!user.password.startsWith("$2")) {
-      // Legacy plaintext password — upgrade immediately
+    if (!isBcryptHash(user.password)) {
+      // Legacy plaintext password — upgrade to bcrypt immediately
       const upgraded = await hashPassword(user.password);
       await mongoUserRepo.updateByUserId(user.userId, { $set: { password: upgraded } });
       passwordToCompare = upgraded;
+      console.info(`AUTH_AUDIT: PASSWORD_UPGRADE | user=${adminId} | from=plaintext | to=bcrypt`);
     }
 
-    // Always use bcrypt.compare (never direct string comparison)
+    // bcrypt.compare handles $2a$/$2b$/$2y$ normalization internally via comparePassword()
     const valid = await comparePassword(password, passwordToCompare);
     if (!valid) {
       // Increment failed login attempts
@@ -334,7 +335,20 @@ router.post("/reset-password", resetPasswordLimiter, async (req, res) => {
 
     // passwordHash field actually receives PLAINTEXT password — hash it before storing
     const hashed = await hashPassword(passwordHash);
-    const result = await mongoUserRepo.updateByUserId(adminId, { $set: { password: hashed, refreshTokens: [] } });
+    const result = await mongoUserRepo.updateByUserId(adminId, {
+      $set: { password: hashed, refreshTokens: [], devices: [], loginAttempts: 0, lockedUntil: null },
+    });
+
+    // ── Sync to Firebase RTDB (same as /reset-password-otp) ──
+    const user = await mongoUserRepo.findByUserId(adminId);
+    if (user) {
+      const fbPath = getFirebasePath(user.role, user.schoolId, adminId);
+      await firebaseUserRepo.update(fbPath, { "Credentials/Password": hashed }).catch((e) => {
+        console.error(`Firebase password sync failed for ${adminId}:`, e.message);
+      });
+    }
+
+    console.info(`AUTH_AUDIT: PASSWORD_RESET | user=${adminId} | type=admin_direct | firebase_synced=${!!user}`);
     res.json({ success: true, message: result ? "Password reset" : "Admin not found" });
   } catch (error) {
     console.error("Internal reset-password error:", error);
@@ -720,12 +734,14 @@ router.post("/reset-password-student", async (req, res) => {
       $set: { password: hashed, refreshTokens: [], devices: [] },
     });
 
-    // Update Firebase
+    // Update Firebase — use HASHED password (NEVER plaintext)
     const user = await mongoUserRepo.findByUserId(userId);
     if (user) {
       const fbKey = user.parentDbKey || user.schoolId;
       const fbPath = getFirebasePath(user.role, fbKey, userId);
-      await firebaseUserRepo.update(fbPath, { Password: newPassword }).catch(() => {});
+      await firebaseUserRepo.update(fbPath, { "Credentials/Password": hashed }).catch((e) => {
+        console.error(`Firebase password sync failed for ${userId}:`, e.message);
+      });
     }
 
     // Cleanup OTPs
@@ -735,6 +751,7 @@ router.post("/reset-password-student", async (req, res) => {
       await Otp.deleteMany({ userId: "__EMAIL__" + user.email });
     }
 
+    console.info(`AUTH_AUDIT: PASSWORD_RESET | user=${userId} | type=student_otp | firebase_synced=${!!user}`);
     res.json({ success: true, message: "Password reset successfully." });
   } catch (error) {
     console.error("Reset password student error:", error);
