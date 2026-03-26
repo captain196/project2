@@ -10,4 +10,10 @@ router.post("/homework", authenticate, notifCtrl.sendHomeworkNotification);
 // POST /api/notifications/flag — notify student about a new flag
 router.post("/flag", authenticate, notifCtrl.sendFlagNotification);
 
+// POST /api/notifications/attendance — notify parent when child is absent/late
+router.post("/attendance", authenticate, notifCtrl.sendAttendanceNotification);
+
+// POST /api/notifications/results — notify class when results are published
+router.post("/results", authenticate, notifCtrl.sendResultsNotification);
+
 module.exports = router;

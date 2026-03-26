@@ -46,6 +46,22 @@ function cleanString(val) {
   return String(val).trim();
 }
 
+/**
+ * Ensure "Class " prefix is present: "8th" → "Class 8th", "Class 8th" → "Class 8th"
+ * All databases use the same format: "Class 8th" / "Section A"
+ */
+function ensureClassPrefix(val) {
+  const s = cleanString(val);
+  if (s === "") return s;
+  return s.startsWith("Class ") ? s : `Class ${s}`;
+}
+
+function ensureSectionPrefix(val) {
+  const s = cleanString(val);
+  if (s === "") return s;
+  return s.startsWith("Section ") ? s : `Section ${s}`;
+}
+
 // ── Migrate Schools ────────────────────────────────────────────────
 
 async function migrateSchool(loginCode, schoolCode) {
@@ -162,8 +178,8 @@ async function migrateStudents(schoolCode, loginCode) {
     if (!indexData || typeof indexData !== "object") continue;
 
     const profile = parentProfiles[studentId] || {};
-    const className = cleanString(indexData.class || profile.className || "").replace("Class ", "");
-    const section = cleanString(indexData.section || profile.section || "").replace("Section ", "");
+    const className = ensureClassPrefix(indexData.class || profile.className || "");
+    const section = ensureSectionPrefix(indexData.section || profile.section || "");
 
     const studentDoc = {
       userId: studentId,
@@ -274,14 +290,14 @@ async function migrateSections(schoolCode) {
 
     // key might be "Class 9th" (no section) or we need to look for section nodes inside
     const classLabel = key;
-    const className = key.replace("Class ", "");
+    const className = key;
 
     // Check if this node has section-like children (Section A, Section B, etc.) or direct data
     for (const [subKey, subValue] of Object.entries(value)) {
       if (!subKey.startsWith("Section ") && !subKey.match(/^[A-Z]$/)) continue;
       if (!subValue || typeof subValue !== "object") continue;
 
-      const sectionName = subKey.replace("Section ", "");
+      const sectionName = subKey;
       const sectionId = `${schoolCode}_${activeSession}_${className}_${sectionName}`;
 
       // Extract roster
@@ -304,8 +320,8 @@ async function migrateSections(schoolCode) {
 
         // Format: assign_001 style
         if (assignData.teacherId && assignData.subject) {
-          const assignClass = cleanString(assignData.className).replace("Class ", "");
-          const assignSection = cleanString(assignData.section).replace("Section ", "");
+          const assignClass = cleanString(assignData.className);
+          const assignSection = cleanString(assignData.section);
           if (assignClass === className && assignSection === sectionName) {
             subjects.push({
               name: cleanString(assignData.subject),
@@ -323,8 +339,8 @@ async function migrateSections(schoolCode) {
       let classTeacherId = "";
       for (const [, assignData] of Object.entries(subjectAssignments)) {
         if (assignData && assignData.isClassTeacher === true) {
-          const ac = cleanString(assignData.className).replace("Class ", "");
-          const as2 = cleanString(assignData.section).replace("Section ", "");
+          const ac = cleanString(assignData.className);
+          const as2 = cleanString(assignData.section);
           if (ac === className && as2 === sectionName) {
             classTeacherId = cleanString(assignData.teacherId);
             break;
@@ -432,13 +448,13 @@ async function migrateAttendance(schoolCode) {
 
   for (const [classKey, classData] of Object.entries(sessionData)) {
     if (!classKey.startsWith("Class ") || !classData || typeof classData !== "object") continue;
-    const className = classKey.replace("Class ", "");
+    const className = classKey;
 
     for (const [secKey, secData] of Object.entries(classData)) {
       if (!secKey.startsWith("Section ") && !secKey.match(/^[A-Z]$/)) continue;
       if (!secData || typeof secData !== "object") continue;
-      const sectionName = secKey.replace("Section ", "");
-      const sectionKey = `${className}_${sectionName}`;
+      const sectionName = secKey;
+      const sectionKey = `${className}/${sectionName}`;
 
       // Iterate students in this section
       const students = secData.Students || {};
@@ -539,12 +555,12 @@ async function migrateHomework(schoolCode) {
   const homeworkRoot = (await rtdbGet(`Schools/${schoolCode}/${activeSession}/Homework`)) || {};
   for (const [classKey, sections] of Object.entries(homeworkRoot)) {
     if (!sections || typeof sections !== "object") continue;
-    const className = classKey.replace("Class ", "");
+    const className = classKey;
 
     for (const [secKey, hwList] of Object.entries(sections)) {
       if (!hwList || typeof hwList !== "object") continue;
-      const sectionName = secKey.replace("Section ", "");
-      const sectionKey = `${className}_${sectionName}`;
+      const sectionName = secKey;
+      const sectionKey = `${className}/${sectionName}`;
 
       for (const [hwId, hwData] of Object.entries(hwList)) {
         if (!hwData || typeof hwData !== "object" || seenHwIds.has(hwId)) continue;
@@ -556,8 +572,8 @@ async function migrateHomework(schoolCode) {
           data: {
             schoolId: schoolCode,
             session: activeSession,
-            className: cleanString(hwData.className || className).replace("Class ", ""),
-            section: cleanString(hwData.section || sectionName).replace("Section ", ""),
+            className: ensureClassPrefix(hwData.className || className),
+            section: ensureSectionPrefix(hwData.section || sectionName),
             sectionKey: sectionKey,
             title: cleanString(hwData.title),
             description: cleanString(hwData.description),
@@ -724,12 +740,12 @@ async function migrateMarks(schoolCode) {
 
     for (const [classKey, sectionData] of Object.entries(classData)) {
       if (!sectionData || typeof sectionData !== "object") continue;
-      const className = classKey.replace("Class ", "");
+      const className = classKey;
 
       for (const [secKey, subjectData] of Object.entries(sectionData)) {
         if (!subjectData || typeof subjectData !== "object") continue;
-        const sectionName = secKey.replace("Section ", "");
-        const sectionKey = `${className}_${sectionName}`;
+        const sectionName = secKey;
+        const sectionKey = `${className}/${sectionName}`;
 
         for (const [subject, students] of Object.entries(subjectData)) {
           if (!students || typeof students !== "object") continue;
@@ -789,12 +805,12 @@ async function migrateResults(schoolCode) {
 
     for (const [classKey, sectionData] of Object.entries(classData)) {
       if (!sectionData || typeof sectionData !== "object") continue;
-      const className = classKey.replace("Class ", "");
+      const className = classKey;
 
       for (const [secKey, students] of Object.entries(sectionData)) {
         if (!students || typeof students !== "object") continue;
-        const sectionName = secKey.replace("Section ", "");
-        const sectionKey = `${className}_${sectionName}`;
+        const sectionName = secKey;
+        const sectionKey = `${className}/${sectionName}`;
 
         for (const [studentId, result] of Object.entries(students)) {
           if (studentId.startsWith("_") || !result || typeof result !== "object") continue;
@@ -901,8 +917,8 @@ async function migrateFeeDemands(schoolCode) {
     for (const [demandId, data] of Object.entries(studentDemands)) {
       if (!data || typeof data !== "object") continue;
 
-      const className = cleanString(data.class || "").replace("Class ", "");
-      const section = cleanString(data.section || "").replace("Section ", "");
+      const className = ensureClassPrefix(data.class || "");
+      const section = ensureSectionPrefix(data.section || "");
 
       docs.push({
         collection: "feeDemands",
@@ -914,7 +930,7 @@ async function migrateFeeDemands(schoolCode) {
           studentName: cleanString(data.student_name || ""),
           className: className,
           section: section,
-          sectionKey: `${className}_${section}`,
+          sectionKey: `${className}/${section}`,
           month: cleanString(data.month || ""),
           demandId: cleanString(data.demand_id || demandId),
           feeItems: data.fee_items || {},
@@ -952,8 +968,8 @@ async function migrateFeeDefaulters(schoolCode) {
   for (const [studentId, data] of Object.entries(defaulters)) {
     if (!data || typeof data !== "object") continue;
 
-    const className = cleanString(data.class || "").replace("Class ", "");
-    const section = cleanString(data.section || "").replace("Section ", "");
+    const className = ensureClassPrefix(data.class || "");
+    const section = ensureSectionPrefix(data.section || "");
 
     docs.push({
       collection: "feeDefaulters",
@@ -1006,8 +1022,8 @@ async function migrateFeeReceipts(schoolCode) {
         receiptNo: cleanString(data.receipt_no || data.receiptNo || receiptKey),
         studentId: cleanString(data.student_id || data.studentId || ""),
         studentName: cleanString(data.student_name || data.studentName || ""),
-        className: cleanString(data.class || data.className || "").replace("Class ", ""),
-        section: cleanString(data.section || "").replace("Section ", ""),
+        className: ensureClassPrefix(data.class || data.className || ""),
+        section: ensureSectionPrefix(data.section || ""),
         amount: parseFloat(data.amount || data.total || 0),
         paymentMode: cleanString(data.mode || data.payment_mode || "Cash"),
         feeMonths: Array.isArray(data.months) ? data.months : (data.month ? [data.month] : []),

@@ -14,10 +14,12 @@ function validate(schema) {
 
 // ─── Common validators ───────────────────────────────────────────────────────
 
-const required = (label) => (v) =>
-  v === undefined || v === null || (typeof v === "string" && !v.trim())
-    ? `${label} is required`
-    : null;
+const required = (label) => (v) => {
+  if (v === undefined || v === null) return `${label} is required`;
+  if (typeof v !== "string") return `${label} must be a string`;
+  if (!v.trim()) return `${label} is required`;
+  return null;
+};
 
 const requiredEmail = (v) => {
   if (!v || !v.trim()) return "Email is required";

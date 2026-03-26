@@ -1424,6 +1424,45 @@ router.post("/sync-to-firestore", async (req, res) => {
   }
 });
 
+// ─── POST /internal/notifications/library ─────────────────────────────────────
+// Send FCM push notification for library overdue reminders.
+// Called by PHP admin panel after writing notification to Firestore.
+// Body: { userId, schoolId, title, body }
+
+const { getStudentTokensById, sendToTokens } = require("../controllers/notificationController");
+
+router.post("/notifications/library", async (req, res) => {
+  try {
+    const { userId, schoolId, title, body } = req.body;
+    if (!userId || !schoolId) {
+      return res.status(400).json({ success: false, message: "userId and schoolId are required" });
+    }
+
+    const tokens = await getStudentTokensById(schoolId, userId);
+
+    const notifTitle = title || "Library Reminder";
+    const notifBody = body || "You have a library book reminder";
+    const data = {
+      type: "library_reminder",
+      studentId: String(userId),
+      schoolId: String(schoolId),
+    };
+
+    const result = await sendToTokens(tokens, notifTitle, notifBody, data);
+
+    res.json({
+      success: true,
+      message: `Library notification sent to ${result.successCount} device(s)`,
+      tokensTargeted: tokens.length,
+      successCount: result.successCount,
+      failureCount: result.failureCount,
+    });
+  } catch (err) {
+    console.error("internal/notifications/library error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 // ─── GET /internal/health ─────────────────────────────────────────────────────
 
 router.get("/health", (req, res) => {
