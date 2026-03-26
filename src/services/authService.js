@@ -23,13 +23,15 @@ const DEVICE_BOUND_ROLES = ["teacher", "student"];
 // deviceId is optional — when provided (mobile app), device binding is enforced
 // for teacher/student roles.
 
+const MOBILE_LOCKOUT_MS = 30 * 60 * 1000; // 30 minutes
+const MOBILE_MAX_ATTEMPTS = 5;
+
 async function loginUser(userId, password, deviceId) {
   if (!userId || !password) throw new ValidationError("User ID and password are required");
   if (typeof userId !== "string" || typeof password !== "string") throw new ValidationError("Invalid input types");
 
   const user = await mongoUserRepo.findByUserId(userId);
   if (!user) {
-    // Log actual reason server-side, return generic message to client
     console.warn(`Login failed: user not found — userId=${userId}`);
     throw new AuthError("Invalid credentials");
   }
@@ -38,10 +40,30 @@ async function loginUser(userId, password, deviceId) {
     throw new AuthError("Invalid credentials");
   }
 
+  // ── Account lockout check (same as web-login) ──
+  if (user.lockedUntil && new Date(user.lockedUntil) > new Date()) {
+    const remainMs = new Date(user.lockedUntil).getTime() - Date.now();
+    console.warn(`Login blocked: account locked — userId=${userId}, remaining=${Math.ceil(remainMs / 60000)}min`);
+    throw new AuthError("Invalid credentials");
+  }
+
   const valid = await comparePassword(password, user.password);
   if (!valid) {
-    console.warn(`Login failed: invalid password — userId=${userId}`);
+    // ── Increment failed attempts + lock if threshold reached ──
+    const newAttempts = (user.loginAttempts || 0) + 1;
+    const updateFields = { $set: { loginAttempts: newAttempts } };
+    if (newAttempts >= MOBILE_MAX_ATTEMPTS) {
+      updateFields.$set.lockedUntil = new Date(Date.now() + MOBILE_LOCKOUT_MS);
+      console.warn(`Account locked after ${MOBILE_MAX_ATTEMPTS} mobile attempts: userId=${userId}`);
+    }
+    await mongoUserRepo.updateByUserId(userId, updateFields);
+    console.info(`AUTH_AUDIT: LOGIN_FAILURE | user=${userId} | type=mobile | attempts=${newAttempts}`);
     throw new AuthError("Invalid credentials");
+  }
+
+  // ── Reset lockout on success ──
+  if (user.loginAttempts > 0 || user.lockedUntil) {
+    await mongoUserRepo.updateByUserId(userId, { $set: { loginAttempts: 0, lockedUntil: null } });
   }
 
   // ── Device binding check for mobile logins ──
