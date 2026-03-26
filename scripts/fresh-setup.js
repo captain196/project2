@@ -189,9 +189,9 @@ async function main() {
   console.log("║  SCHOOLSYNC FRESH SETUP — FULL DATA RESET   ║");
   console.log("╚══════════════════════════════════════════════╝\n");
 
-  // ── Connect MongoDB ──
-  await mongoose.connect(process.env.MONGODB_URI);
-  console.log("✅ Connected to MongoDB\n");
+  // ── Connect MongoDB (must use same dbName as server: graderIQ) ──
+  await mongoose.connect(process.env.MONGODB_URI, { dbName: "graderIQ" });
+  console.log("✅ Connected to MongoDB (graderIQ)\n");
 
   // ── PHASE 1: CLEAN EVERYTHING ──
   console.log("🗑️  PHASE 1: Cleaning all existing data...\n");
