@@ -28,27 +28,15 @@ const CAN_CREATE = {
   student: [],
 };
 
-const MAX_REFRESH_TOKENS = { super_admin: 3, school_super_admin: 2, admin: 2, teacher: 2, student: 2 };
+const MAX_REFRESH_TOKENS = { super_admin: 3, school_super_admin: 2, admin: 2, teacher: 3, student: 5 };
 
 // ─── Firebase path helpers ────────────────────────────────────────────────────
 
-/**
- * Validate that a segment is safe for Firebase path construction.
- * Prevents path traversal (../, /, .) and injection attacks.
- */
-function _safeFbSegment(segment) {
-  if (!segment || typeof segment !== "string") return "unknown";
-  // Strip any characters that could enable path traversal or injection
-  return segment.replace(/[\/\.\#\$\[\]]/g, "_");
-}
-
 function getFirebasePath(role, schoolId, userId) {
-  const safeSchool = _safeFbSegment(schoolId);
-  const safeUser = _safeFbSegment(userId);
-  if (role === "super_admin") return `Users/Admin/Our Panel/${safeUser}`;
-  if (role === "teacher") return `Users/Teachers/${safeSchool}/${safeUser}`;
-  if (role === "student") return `Users/Parents/${safeSchool}/${safeUser}`;
-  return `Users/Admin/${safeSchool}/${safeUser}`;
+  if (role === "super_admin") return `Users/Admin/Our Panel/${userId}`;
+  if (role === "teacher") return `Users/Teachers/${schoolId}/${userId}`;
+  if (role === "student") return `Users/Parents/${schoolId}/${userId}`;
+  return `Users/Admin/${schoolId}/${userId}`;
 }
 
 function buildFirebaseProfile(data) {
