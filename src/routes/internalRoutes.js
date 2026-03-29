@@ -127,13 +127,26 @@ router.post("/web-login", webLoginLimiter, async (req, res) => {
     const loginCode = user.schoolId;       // login code for Firebase user path
     const firebaseKey = user.schoolCode;   // internal Firebase key for school data
 
-    let fbPath;
-    if (user.role === "super_admin") {
-      fbPath = `Users/Admin/Our Panel/${user.userId}`;
-    } else {
-      fbPath = `Users/Admin/${loginCode}/${user.userId}`;
+    // Use role-aware path with fallback for legacy data
+    const primaryPath = getFirebasePath(user.role, loginCode, user.userId);
+    let firebaseProfile = await firebaseUserRepo.get(primaryPath);
+
+    // Fallback: try alternate paths if primary path returned no valid profile
+    if (!firebaseProfile || typeof firebaseProfile !== 'object' || !firebaseProfile.Name) {
+      const fallbackPaths = [
+        `Users/Admin/${loginCode}/${user.userId}`,
+        `Users/Admin/Our Panel/${user.userId}`,
+        `Users/Teachers/${loginCode}/${user.userId}`,
+      ].filter(p => p !== primaryPath);
+
+      for (const path of fallbackPaths) {
+        const data = await firebaseUserRepo.get(path);
+        if (data && typeof data === 'object' && data.Name) {
+          firebaseProfile = data;
+          break;
+        }
+      }
     }
-    const firebaseProfile = await firebaseUserRepo.get(fbPath);
 
     // Fetch subscription + sessions for school-scoped users
     let subscription = {};
@@ -212,6 +225,11 @@ router.post("/sync-admin", async (req, res) => {
       admin: "admin", teacher: "teacher", student: "student",
       DSA: "super_admin", SSA: "school_super_admin", ADM: "admin",
       TEA: "teacher", STU: "student",
+      STA: "teacher", sta: "teacher",
+      librarian: "teacher", transport_manager: "teacher",
+      hostel_warden: "teacher", principal: "admin",
+      vice_principal: "admin", academic_coordinator: "teacher",
+      hr_manager: "admin", accountant: "teacher", front_office: "teacher",
     };
     const mappedRole = roleMap[role] || "admin";
 
@@ -833,8 +851,8 @@ router.post("/sync-student", async (req, res) => {
       const firestoreRepo = require("../repositories/firestoreRepo");
       const effectiveSchoolId = schoolCode || schoolId || "";
 
-      // Write to students collection (unchanged — separate from user hierarchy)
-      await firestoreRepo.setDoc("students", studentId, {
+      // Write to schools/{schoolId}/students subcollection
+      await firestoreRepo.setDoc(firestoreRepo.studentCollectionPath(effectiveSchoolId), studentId, {
         userId: studentId,
         name: name || "",
         email: email ? email.toLowerCase() : "",
@@ -1459,6 +1477,18 @@ router.post("/sync-to-firestore", async (req, res) => {
       const role = data.role || "teacher";
       const schoolId = data.schoolId || "";
       const collection = firestoreRepo.userCollectionPath(role, schoolId);
+      await firestoreRepo.setDoc(collection, id, docData, { merge: true });
+      res.json({ success: true, message: `Synced ${collection}/${id} to Firestore` });
+    } else if (entity === "students") {
+      // Route students through subcollection: schools/{schoolId}/students/{id}
+      const schoolId = data.schoolId || "";
+      const collection = firestoreRepo.studentCollectionPath(schoolId);
+      await firestoreRepo.setDoc(collection, id, docData, { merge: true });
+      res.json({ success: true, message: `Synced ${collection}/${id} to Firestore` });
+    } else if (entity === "sections") {
+      // Route sections through subcollection: schools/{schoolId}/sections/{id}
+      const schoolId = data.schoolId || "";
+      const collection = firestoreRepo.sectionCollectionPath(schoolId);
       await firestoreRepo.setDoc(collection, id, docData, { merge: true });
       res.json({ success: true, message: `Synced ${collection}/${id} to Firestore` });
     } else {

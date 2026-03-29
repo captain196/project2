@@ -144,4 +144,20 @@ function userCollectionPath(role, schoolId) {
   }
 }
 
-module.exports = { getDoc, setDoc, updateDoc, deleteDoc, query, batchWrite, serverTimestamp, userCollectionPath };
+/**
+ * Return the Firestore subcollection path for sections under a school.
+ * e.g. sectionCollectionPath("SCH_xxx") -> "schools/SCH_xxx/sections"
+ */
+function sectionCollectionPath(schoolId) {
+    return `schools/${schoolId}/sections`;
+}
+
+/**
+ * Return the Firestore subcollection path for students under a school.
+ * e.g. studentCollectionPath("SCH_xxx") -> "schools/SCH_xxx/students"
+ */
+function studentCollectionPath(schoolId) {
+    return `schools/${schoolId}/students`;
+}
+
+module.exports = { getDoc, setDoc, updateDoc, deleteDoc, query, batchWrite, serverTimestamp, userCollectionPath, sectionCollectionPath, studentCollectionPath };
