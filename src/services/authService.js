@@ -191,14 +191,16 @@ async function loginUser(userId, password, deviceId) {
     console.error("Firebase custom token error:", fbErr.message);
   }
 
-  // ── Dual-write: sync user to Firestore 'schoolsync' database ──
+  // ── Dual-write: sync user to Firestore hierarchical user subcollection ──
   try {
-    await firestoreRepo.setDoc("users", user.userId, {
+    const effectiveSchoolId = user.schoolCode || user.schoolId || "";
+    const userCollection = firestoreRepo.userCollectionPath(user.role, effectiveSchoolId);
+    await firestoreRepo.setDoc(userCollection, user.userId, {
       userId: user.userId,
       name: userPayload.name || "",
       email: userPayload.email || "",
       role: user.role,
-      schoolId: user.schoolCode || user.schoolId || "",
+      schoolId: effectiveSchoolId,
       profilePic: userPayload.profilePic || "",
       status: user.status,
       lastLoginAt: firestoreRepo.serverTimestamp(),

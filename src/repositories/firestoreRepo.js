@@ -98,4 +98,50 @@ function serverTimestamp() {
   return admin.firestore.FieldValue.serverTimestamp();
 }
 
-module.exports = { getDoc, setDoc, updateDoc, deleteDoc, query, batchWrite, serverTimestamp };
+/**
+ * Map a user role to the correct Firestore hierarchical subcollection path.
+ *
+ * NEW structure:
+ *   users/global/superadmins/{userId}           — Super Admins
+ *   users/{schoolId}/schoolsuperadmins/{userId}  — School Super Admins
+ *   users/{schoolId}/admins/{userId}             — School Admins
+ *   users/{schoolId}/staff/{userId}              — Staff (non-teacher roles)
+ *   users/{schoolId}/teachers/{userId}           — Teachers
+ *   users/{schoolId}/parents/{userId}            — Parents/Students
+ *
+ * @param {string} role      e.g. "super_admin", "admin", "teacher", "student"
+ * @param {string} schoolId  Firebase school key, e.g. "SCH_9738C22243"
+ * @returns {string}         Subcollection path, e.g. "users/SCH_xxx/teachers"
+ */
+function userCollectionPath(role, schoolId) {
+  const r = (role || "").toLowerCase().trim();
+  switch (r) {
+    case "super_admin":
+    case "superadmin":
+      return "users/global/superadmins";
+    case "school_super_admin":
+    case "schoolsuperadmin":
+      return `users/${schoolId}/schoolsuperadmins`;
+    case "admin":
+      return `users/${schoolId}/admins`;
+    case "principal":
+    case "vice_principal":
+    case "academic_coordinator":
+    case "hr_manager":
+    case "accountant":
+    case "front_office":
+    case "librarian":
+    case "transport_manager":
+    case "hostel_warden":
+      return `users/${schoolId}/staff`;
+    case "teacher":
+    case "class_teacher":
+      return `users/${schoolId}/teachers`;
+    case "student":
+    case "parent":
+    default:
+      return `users/${schoolId}/parents`;
+  }
+}
+
+module.exports = { getDoc, setDoc, updateDoc, deleteDoc, query, batchWrite, serverTimestamp, userCollectionPath };

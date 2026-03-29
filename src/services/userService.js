@@ -141,6 +141,9 @@ async function createUser({ name, email, phone, password, role, schoolId, create
     throw err;
   }
 
+  // Step 1b: Strip irrelevant fields for this role
+  await mongoUserRepo.unsetIrrelevantFields(userId, role);
+
   // Step 2: Firebase
   const fbPath = getFirebasePath(role, schoolId, userId);
   const fbData = buildFirebaseProfile({ ...mongoData, createdAt: now });
@@ -182,6 +185,9 @@ async function seedPrimarySuperAdmin() {
   };
 
   await mongoUserRepo.create(mongoData);
+
+  // Strip irrelevant fields for super_admin
+  await mongoUserRepo.unsetIrrelevantFields(userId, "super_admin");
 
   const fbData = buildFirebaseProfile({ ...mongoData, createdAt: now, isPrimary: true });
   await firebaseUserRepo.set(`Users/Admin/Our Panel/${userId}`, fbData);

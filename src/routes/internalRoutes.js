@@ -265,17 +265,21 @@ router.post("/sync-admin", async (req, res) => {
 
     await User.findOneAndUpdate({ userId: adminId }, update, { upsert: true, new: true });
 
-    // ── Dual-write: sync to Firestore 'schoolsync' database ──
+    // Strip irrelevant fields for this role
+    await mongoUserRepo.unsetIrrelevantFields(adminId, mappedRole);
+
+    // ── Dual-write: sync to Firestore hierarchical user subcollections ──
     try {
       const firestoreRepo = require("../repositories/firestoreRepo");
-      const collection = (mappedRole === "teacher") ? "staff" : "staff";
-      await firestoreRepo.setDoc(collection, adminId, {
+      const effectiveSchoolId = schoolCode || schoolId || "";
+      const userCollection = firestoreRepo.userCollectionPath(mappedRole, effectiveSchoolId);
+      await firestoreRepo.setDoc(userCollection, adminId, {
         userId: adminId,
         name: name || "",
         email: email ? email.toLowerCase() : "",
         phone: phone || "",
         role: mappedRole,
-        schoolId: schoolCode || schoolId || "",
+        schoolId: effectiveSchoolId,
         loginCode: schoolId || "",
         department: department || "Administration",
         position: position || mappedRole,
@@ -286,17 +290,6 @@ router.post("/sync-admin", async (req, res) => {
         status: "Active",
         syncedAt: firestoreRepo.serverTimestamp(),
         syncSource: "sync-admin",
-      }, { merge: true });
-
-      await firestoreRepo.setDoc("users", adminId, {
-        userId: adminId,
-        name: name || "",
-        email: email ? email.toLowerCase() : "",
-        role: mappedRole,
-        schoolId: schoolCode || schoolId || "",
-        profilePic: profilePic || "",
-        status: "Active",
-        syncedAt: firestoreRepo.serverTimestamp(),
       }, { merge: true });
     } catch (fsErr) {
       console.error("Firestore sync-admin error (non-fatal):", fsErr.message);
@@ -832,15 +825,21 @@ router.post("/sync-student", async (req, res) => {
       { upsert: true, new: true }
     );
 
-    // ── Dual-write: sync to Firestore 'schoolsync' database ──
+    // Strip irrelevant fields for student role
+    await mongoUserRepo.unsetIrrelevantFields(studentId, "student");
+
+    // ── Dual-write: sync to Firestore hierarchical user subcollections ──
     try {
       const firestoreRepo = require("../repositories/firestoreRepo");
+      const effectiveSchoolId = schoolCode || schoolId || "";
+
+      // Write to students collection (unchanged — separate from user hierarchy)
       await firestoreRepo.setDoc("students", studentId, {
         userId: studentId,
         name: name || "",
         email: email ? email.toLowerCase() : "",
         phone: phone || "",
-        schoolId: schoolCode || schoolId || "",
+        schoolId: effectiveSchoolId,
         loginCode: schoolId || "",
         className: className || "",
         section: section || "",
@@ -858,12 +857,14 @@ router.post("/sync-student", async (req, res) => {
         syncSource: "sync-student",
       }, { merge: true });
 
-      await firestoreRepo.setDoc("users", studentId, {
+      // Write to users/{schoolId}/parents/{studentId} (new hierarchy)
+      const userCollection = firestoreRepo.userCollectionPath("student", effectiveSchoolId);
+      await firestoreRepo.setDoc(userCollection, studentId, {
         userId: studentId,
         name: name || "",
         email: email ? email.toLowerCase() : "",
         role: "student",
-        schoolId: schoolCode || schoolId || "",
+        schoolId: effectiveSchoolId,
         profilePic: profilePic || "",
         status: "Active",
         syncedAt: firestoreRepo.serverTimestamp(),
@@ -1042,16 +1043,20 @@ const mobileAppLoginHandler = async (req, res) => {
 
     console.info(`AUTH_AUDIT: LOGIN_SUCCESS | user=${user.userId} | ip=${req.ip} | type=mobile | deviceId=${device.deviceId} | role=${user.role}`);
 
-    res.json({
-      success: true,
-      user: {
-        userId: user.userId,
-        name: user.name,
-        email: user.email,
-        phone: user.phone || "",
-        role: user.role,
-        schoolId: user.schoolId,
-        schoolCode: user.schoolCode,
+    // Build role-conditional response payload
+    const userPayload = {
+      userId: user.userId,
+      name: user.name,
+      email: user.email,
+      phone: user.phone || "",
+      role: user.role,
+      schoolId: user.schoolId,
+      schoolCode: user.schoolCode,
+    };
+
+    // Student-specific fields
+    if (user.role === "student") {
+      Object.assign(userPayload, {
         schoolDisplayName: user.schoolDisplayName || schoolInfo?.schoolName || "",
         parentDbKey: user.parentDbKey || user.schoolId || "",
         className: user.className || "",
@@ -1063,11 +1068,25 @@ const mobileAppLoginHandler = async (req, res) => {
         gender: user.gender || "",
         admissionDate: user.admissionDate || "",
         profilePic: user.profilePic || "",
+      });
+    }
+
+    // Teacher-specific fields
+    if (user.role === "teacher") {
+      Object.assign(userPayload, {
+        profilePic: user.profilePic || "",
+        parentDbKey: user.parentDbKey || user.schoolId || "",
         position: user.position || "",
         department: user.department || "",
+        gender: user.gender || "",
         classesAssigned: user.classesAssigned || [],
         subjects: user.subjects || [],
-      },
+      });
+    }
+
+    res.json({
+      success: true,
+      user: userPayload,
       firebaseProfile,
       schoolInfo,
       accessToken,
@@ -1411,7 +1430,9 @@ router.post("/list-devices", async (req, res) => {
 
 // ─── POST /internal/sync-to-firestore ──────────────────────────────────────────
 // Syncs entity data from admin panel to Firestore.
-// Body: { entity: "schools"|"staff"|"students"|"parents"|"sections"|"users", id: string, data: object }
+// Body: { entity: "schools"|"students"|"parents"|"sections"|..., id: string, data: object }
+// For user entities, pass: { entity: "user", id: string, data: { role, schoolId, ... } }
+// Legacy "staff" and "users" entities are auto-routed to the new hierarchy.
 
 router.post("/sync-to-firestore", async (req, res) => {
   try {
@@ -1421,7 +1442,8 @@ router.post("/sync-to-firestore", async (req, res) => {
     }
 
     const firestoreRepo = require("../repositories/firestoreRepo");
-    const validEntities = ["schools", "staff", "students", "parents", "sections", "users"];
+    const validEntities = ["schools", "students", "parents", "sections", "user",
+                           "staff", "users"]; // legacy compat
     if (!validEntities.includes(entity)) {
       return res.status(400).json({ success: false, message: `Invalid entity: ${entity}` });
     }
@@ -1432,9 +1454,17 @@ router.post("/sync-to-firestore", async (req, res) => {
       syncSource: "admin_panel",
     };
 
-    await firestoreRepo.setDoc(entity, id, docData, { merge: true });
-
-    res.json({ success: true, message: `Synced ${entity}/${id} to Firestore` });
+    // Route "user", "staff", and "users" entities through the hierarchical path
+    if (entity === "user" || entity === "staff" || entity === "users") {
+      const role = data.role || "teacher";
+      const schoolId = data.schoolId || "";
+      const collection = firestoreRepo.userCollectionPath(role, schoolId);
+      await firestoreRepo.setDoc(collection, id, docData, { merge: true });
+      res.json({ success: true, message: `Synced ${collection}/${id} to Firestore` });
+    } else {
+      await firestoreRepo.setDoc(entity, id, docData, { merge: true });
+      res.json({ success: true, message: `Synced ${entity}/${id} to Firestore` });
+    }
   } catch (err) {
     console.error("sync-to-firestore error:", err.message);
     res.status(500).json({ success: false, message: err.message });

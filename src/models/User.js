@@ -95,4 +95,40 @@ userSchema.index(
   }
 );
 
-module.exports = mongoose.model("User", userSchema);
+// ─── Fields to $unset per role (keeps documents lean) ────────────────────────
+const FIELDS_TO_UNSET = {
+  super_admin: [
+    "schoolId","schoolCode","schoolDisplayName",
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate","gender",
+    "profilePic","parentDbKey",
+    "position","department","staffRoles","primaryRole","classesAssigned","subjects",
+    "devices","parentPhone","deviceBindingMethod",
+  ],
+  school_super_admin: [
+    "schoolDisplayName",
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate","gender",
+    "profilePic","parentDbKey",
+    "position","department","staffRoles","primaryRole","classesAssigned","subjects",
+    "devices","parentPhone","deviceBindingMethod",
+  ],
+  admin: [
+    "schoolDisplayName",
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate","gender",
+    "profilePic","parentDbKey",
+    "position","department","staffRoles","primaryRole","classesAssigned","subjects",
+    "devices","parentPhone","deviceBindingMethod",
+  ],
+  teacher: [
+    "schoolDisplayName",
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentPhone","parentDbKey",
+  ],
+  student: [
+    "position","department","staffRoles","primaryRole","classesAssigned","subjects",
+  ],
+};
+
+const UserModel = mongoose.model("User", userSchema);
+
+module.exports = UserModel;
+module.exports.FIELDS_TO_UNSET = FIELDS_TO_UNSET;

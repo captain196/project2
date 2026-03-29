@@ -1,4 +1,5 @@
 const User = require("../models/User");
+const { FIELDS_TO_UNSET } = require("../models/User");
 
 async function create(data) {
   return User.create(data);
@@ -60,6 +61,18 @@ async function setFcmToken(userId, deviceId, fcmToken) {
   );
 }
 
+/**
+ * Remove fields that are irrelevant for the given role.
+ * Call after create/upsert to keep documents lean.
+ */
+async function unsetIrrelevantFields(userId, role) {
+  const fields = FIELDS_TO_UNSET[role];
+  if (!fields || !fields.length) return;
+  const unset = {};
+  for (const f of fields) unset[f] = "";
+  return User.findOneAndUpdate({ userId }, { $unset: unset });
+}
+
 module.exports = {
   create,
   findByUserId,
@@ -72,4 +85,5 @@ module.exports = {
   removeRefreshToken,
   clearRefreshTokens,
   setFcmToken,
+  unsetIrrelevantFields,
 };
