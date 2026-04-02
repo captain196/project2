@@ -3,7 +3,14 @@ const { ForbiddenError } = require("../utils/errors");
 /**
  * Role hierarchy: super_admin > school_super_admin > admin
  */
-const ROLE_LEVEL = { super_admin: 5, school_super_admin: 4, admin: 3, teacher: 2, student: 1 };
+const ROLE_LEVEL = {
+  super_admin: 5, school_super_admin: 4, admin: 3,
+  principal: 3, vice_principal: 3,
+  academic_coordinator: 2, hr_manager: 2, accountant: 2, front_office: 2,
+  class_teacher: 2, teacher: 2,
+  librarian: 2, transport_manager: 2, hostel_warden: 2, staff: 1,
+  student: 1,
+};
 
 /**
  * Require minimum role level.

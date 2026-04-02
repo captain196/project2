@@ -1,6 +1,18 @@
 const { getFirestore } = require("../config/firebase");
 
 /**
+ * Canonical Firestore collection name constants.
+ * Import these instead of sprinkling string literals across controllers.
+ */
+const COLLECTIONS = {
+  SUBJECT_ASSIGNMENTS: "subjectAssignments",
+  ACADEMIC_CALENDAR: "academicCalendar",
+  SUBSTITUTES: "substitutes",
+  CURRICULUM: "curriculum",
+  TIMETABLES: "timetables",
+};
+
+/**
  * Get a document by collection and ID.
  * @returns {Object|null} Document data with id, or null if not found.
  */
@@ -137,10 +149,14 @@ function userCollectionPath(role, schoolId) {
     case "teacher":
     case "class_teacher":
       return `users/${schoolId}/teachers`;
+    case "staff":
+      return `users/${schoolId}/staff`;
     case "student":
+      return `users/${schoolId}/students`;
     case "parent":
-    default:
       return `users/${schoolId}/parents`;
+    default:
+      return `users/${schoolId}/staff`;
   }
 }
 
@@ -160,4 +176,36 @@ function studentCollectionPath(schoolId) {
     return `schools/${schoolId}/students`;
 }
 
-module.exports = { getDoc, setDoc, updateDoc, deleteDoc, query, batchWrite, serverTimestamp, userCollectionPath, sectionCollectionPath, studentCollectionPath };
+/**
+ * Return the Firestore subcollection path for subject assignments under a school.
+ * e.g. subjectAssignmentCollectionPath("SCH_xxx") -> "schools/SCH_xxx/subjectAssignments"
+ */
+function subjectAssignmentCollectionPath(schoolId) {
+    return `schools/${schoolId}/subjectAssignments`;
+}
+
+/**
+ * Return the Firestore subcollection path for timetable settings under a school.
+ * e.g. timetableSettingsCollectionPath("SCH_xxx") -> "schools/SCH_xxx/timetableSettings"
+ */
+function timetableSettingsCollectionPath(schoolId) {
+    return `schools/${schoolId}/timetableSettings`;
+}
+
+function timetableCollectionPath(schoolId) {
+    return `schools/${schoolId}/timetables`;
+}
+
+function curriculumCollectionPath(schoolId) {
+    return `schools/${schoolId}/curriculum`;
+}
+
+function academicCalendarCollectionPath(schoolId) {
+    return `schools/${schoolId}/academicCalendar`;
+}
+
+function substituteCollectionPath(schoolId) {
+    return `schools/${schoolId}/substitutes`;
+}
+
+module.exports = { COLLECTIONS, getDoc, setDoc, updateDoc, deleteDoc, query, batchWrite, serverTimestamp, userCollectionPath, sectionCollectionPath, studentCollectionPath, subjectAssignmentCollectionPath, timetableSettingsCollectionPath, timetableCollectionPath, curriculumCollectionPath, academicCalendarCollectionPath, substituteCollectionPath };

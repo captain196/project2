@@ -1,6 +1,7 @@
 const { generateIdForRole, generateId } = require("./idGenerator");
 const mongoUserRepo = require("../repositories/mongoUserRepo");
 const firebaseUserRepo = require("../repositories/firebaseUserRepo");
+const firestoreRepo = require("../repositories/firestoreRepo");
 const { hashPassword, generateRandomPassword } = require("../utils/hash");
 const {
   ConflictError,
@@ -16,19 +17,59 @@ const ROLE_DISPLAY = {
   super_admin: "Super Admin",
   school_super_admin: "School Super Admin",
   admin: "Admin",
+  principal: "Principal",
+  vice_principal: "Vice Principal",
+  academic_coordinator: "Academic Coordinator",
+  hr_manager: "HR Manager",
+  accountant: "Accountant",
+  front_office: "Front Office",
+  class_teacher: "Class Teacher",
   teacher: "Teacher",
+  librarian: "Librarian",
+  transport_manager: "Transport Manager",
+  hostel_warden: "Hostel Warden",
+  staff: "Staff",
   student: "Student",
 };
 
 const CAN_CREATE = {
-  super_admin: ["super_admin", "school_super_admin", "admin", "teacher", "student"],
-  school_super_admin: ["admin", "teacher", "student"],
-  admin: ["teacher", "student"],
+  super_admin: [
+    "super_admin", "school_super_admin", "admin", "principal", "vice_principal",
+    "academic_coordinator", "hr_manager", "accountant", "front_office",
+    "class_teacher", "teacher", "librarian", "transport_manager", "hostel_warden", "staff", "student",
+  ],
+  school_super_admin: [
+    "admin", "principal", "vice_principal", "academic_coordinator", "hr_manager",
+    "accountant", "front_office", "class_teacher", "teacher", "librarian",
+    "transport_manager", "hostel_warden", "staff", "student",
+  ],
+  admin: [
+    "academic_coordinator", "hr_manager", "accountant", "front_office",
+    "class_teacher", "teacher", "librarian", "transport_manager", "hostel_warden", "staff", "student",
+  ],
+  principal: ["class_teacher", "teacher", "student"],
+  vice_principal: ["teacher", "student"],
+  academic_coordinator: [],
+  hr_manager: [],
+  accountant: [],
+  front_office: [],
+  class_teacher: [],
   teacher: [],
+  librarian: [],
+  transport_manager: [],
+  hostel_warden: [],
+  staff: [],
   student: [],
 };
 
-const MAX_REFRESH_TOKENS = { super_admin: 3, school_super_admin: 2, admin: 2, teacher: 2, student: 2 };
+const MAX_REFRESH_TOKENS = {
+  super_admin: 3, school_super_admin: 2, admin: 2,
+  principal: 2, vice_principal: 2, academic_coordinator: 2,
+  hr_manager: 2, accountant: 2, front_office: 2,
+  class_teacher: 2, teacher: 2,
+  librarian: 2, transport_manager: 2, hostel_warden: 2, staff: 2,
+  student: 2,
+};
 
 // ─── Firebase path helpers ────────────────────────────────────────────────────
 
@@ -42,12 +83,21 @@ function _safeFbSegment(segment) {
   return segment.replace(/[\/\.\#\$\[\]]/g, "_");
 }
 
+// Roles whose RTDB profile lives under Users/Admin/{schoolId}/{userId}
+const ADMIN_PATH_ROLES = [
+  "admin", "school_super_admin",
+  "principal", "vice_principal", "academic_coordinator",
+  "hr_manager", "accountant", "front_office",
+  "librarian", "transport_manager", "hostel_warden", "staff",
+];
+
 function getFirebasePath(role, schoolId, userId) {
   const safeSchool = _safeFbSegment(schoolId);
   const safeUser = _safeFbSegment(userId);
   if (role === "super_admin") return `Users/Admin/Our Panel/${safeUser}`;
-  if (role === "teacher") return `Users/Teachers/${safeSchool}/${safeUser}`;
+  if (role === "teacher" || role === "class_teacher") return `Users/Teachers/${safeSchool}/${safeUser}`;
   if (role === "student") return `Users/Parents/${safeSchool}/${safeUser}`;
+  // All admin sub-roles (ADM prefix users) go to Users/Admin/
   return `Users/Admin/${safeSchool}/${safeUser}`;
 }
 
@@ -155,6 +205,28 @@ async function createUser({ name, email, phone, password, role, schoolId, create
     throw new AppError("Firebase write failed — rolled back. " + err.message);
   }
 
+  // Step 3: Firestore
+  const fsCollection = firestoreRepo.userCollectionPath(role, schoolId);
+  const fsData = {
+    userId,
+    name,
+    email: mongoData.email,
+    phone: mongoData.phone,
+    role: ROLE_DISPLAY[role] || role,
+    status: "Active",
+    createdAt: now,
+    createdBy,
+  };
+  if (mongoData.schoolId) fsData.schoolId = mongoData.schoolId;
+  try {
+    await firestoreRepo.setDoc(fsCollection, userId, fsData);
+  } catch (err) {
+    // Rollback MongoDB + RTDB
+    await mongoUserRepo.deleteByUserId(userId);
+    await firebaseUserRepo.remove(fbPath);
+    throw new AppError("Firestore write failed — rolled back. " + err.message);
+  }
+
   return { userId, name, email: mongoData.email, role, schoolId: mongoData.schoolId, status: "Active" };
 }
 
@@ -191,6 +263,19 @@ async function seedPrimarySuperAdmin() {
 
   const fbData = buildFirebaseProfile({ ...mongoData, createdAt: now, isPrimary: true });
   await firebaseUserRepo.set(`Users/Admin/Our Panel/${userId}`, fbData);
+
+  // Firestore
+  const fsCollection = firestoreRepo.userCollectionPath("super_admin", null);
+  await firestoreRepo.setDoc(fsCollection, userId, {
+    userId,
+    name: mongoData.name,
+    email: mongoData.email,
+    phone: mongoData.phone,
+    role: "Super Admin",
+    status: "Active",
+    createdAt: now,
+    createdBy: "system",
+  });
 
   console.log("========================================");
   console.log("🔐 PRIMARY SUPER ADMIN CREATED");
@@ -244,6 +329,16 @@ async function updateUserProfile(userId, { name, email, phone }) {
   }
   await firebaseUserRepo.update(fbPath, fbUpdates);
 
+  // Firestore
+  const fsCollection = firestoreRepo.userCollectionPath(user.role, user.schoolId);
+  const fsUpdates = {};
+  if (name) fsUpdates.name = name;
+  if (email !== undefined) fsUpdates.email = updates.email;
+  if (phone !== undefined) fsUpdates.phone = updates.phone;
+  if (Object.keys(fsUpdates).length > 0) {
+    await firestoreRepo.updateDoc(fsCollection, userId, fsUpdates);
+  }
+
   return {
     userId: updated.userId,
     name: updated.name,
@@ -274,6 +369,11 @@ async function deleteUser(userId, actorId) {
 
   const fbPath = getFirebasePath(user.role, user.schoolId, userId);
   await firebaseUserRepo.remove(fbPath);
+
+  // Firestore
+  const fsCollection = firestoreRepo.userCollectionPath(user.role, user.schoolId);
+  await firestoreRepo.deleteDoc(fsCollection, userId);
+
   await mongoUserRepo.deleteByUserId(userId);
 
   return { message: `User ${userId} deleted` };

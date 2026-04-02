@@ -220,18 +220,13 @@ router.post("/sync-admin", async (req, res) => {
     } = req.body;
     if (!adminId) return res.status(400).json({ success: false, message: "adminId required" });
 
+    // All roles now stored as-is in MongoDB (enum expanded).
+    // Only map legacy ID-prefix shortcuts to proper role names.
     const roleMap = {
-      super_admin: "super_admin", school_super_admin: "school_super_admin",
-      admin: "admin", teacher: "teacher", student: "student",
       DSA: "super_admin", SSA: "school_super_admin", ADM: "admin",
-      TEA: "teacher", STU: "student",
-      STA: "teacher", sta: "teacher",
-      librarian: "teacher", transport_manager: "teacher",
-      hostel_warden: "teacher", principal: "admin",
-      vice_principal: "admin", academic_coordinator: "teacher",
-      hr_manager: "admin", accountant: "teacher", front_office: "teacher",
+      TEA: "teacher", STU: "student", STA: "staff", sta: "staff",
     };
-    const mappedRole = roleMap[role] || "admin";
+    const mappedRole = roleMap[role] || role || "admin";
 
     // Auto-generate IDs if requested (__AUTO_XXX__ pattern)
     const { generateIdForRole } = require("../services/idGenerator");
@@ -269,8 +264,12 @@ router.post("/sync-admin", async (req, res) => {
     };
     if (passwordHash) update.$set.password = passwordHash;
 
-    // Teacher-specific fields — only set if provided (avoids nulling on partial updates)
-    if (mappedRole === "teacher") {
+    // Staff/teacher profile fields — only set if provided (avoids nulling on partial updates)
+    const staffLikeRoles = [
+      "teacher", "class_teacher", "principal", "vice_principal", "academic_coordinator",
+      "hr_manager", "accountant", "front_office", "librarian", "transport_manager", "hostel_warden", "staff",
+    ];
+    if (staffLikeRoles.includes(mappedRole)) {
       if (profilePic !== undefined) update.$set.profilePic = profilePic || null;
       if (position !== undefined)   update.$set.position = position || null;
       if (department !== undefined)  update.$set.department = department || null;
@@ -812,7 +811,7 @@ router.post("/sync-student", async (req, res) => {
         schoolCode: schoolCode || null,    // Firebase key (e.g. "Demo" or "SCH_XXXXXX")
         parentDbKey: parentDbKey || schoolId || null,  // Firebase Users/Parents key
         parentPhone: parentPhone || phone || null,
-        status: "Active",
+        status: "active",
         // Student profile fields
         className: className || null,
         section: section || null,
@@ -851,16 +850,23 @@ router.post("/sync-student", async (req, res) => {
       const firestoreRepo = require("../repositories/firestoreRepo");
       const effectiveSchoolId = schoolCode || schoolId || "";
 
+      // Normalize class/section with prefixes for Firestore
+      const fsClassName = className ? (className.startsWith("Class ") ? className : `Class ${className}`) : "";
+      const fsSection = section ? (section.startsWith("Section ") ? section : `Section ${section}`) : "";
+      const fsSectionKey = fsClassName && fsSection ? `${fsClassName}/${fsSection}` : "";
+
       // Write to schools/{schoolId}/students subcollection
       await firestoreRepo.setDoc(firestoreRepo.studentCollectionPath(effectiveSchoolId), studentId, {
         userId: studentId,
+        studentId: studentId,
         name: name || "",
         email: email ? email.toLowerCase() : "",
         phone: phone || "",
         schoolId: effectiveSchoolId,
         loginCode: schoolId || "",
-        className: className || "",
-        section: section || "",
+        className: fsClassName,
+        section: fsSection,
+        sectionKey: fsSectionKey,
         rollNo: rollNo || "",
         fatherName: fatherName || "",
         motherName: motherName || "",
@@ -868,23 +874,28 @@ router.post("/sync-student", async (req, res) => {
         gender: gender || "",
         admissionDate: admissionDate || "",
         parentDbKey: parentDbKey || schoolId || "",
+        parentId: "",
         profilePic: profilePic || "",
-        status: "Active",
-        session: "",
+        status: "active",
         syncedAt: firestoreRepo.serverTimestamp(),
         syncSource: "sync-student",
       }, { merge: true });
 
-      // Write to users/{schoolId}/parents/{studentId} (new hierarchy)
+      // Write to users/{schoolId}/students/{studentId}
       const userCollection = firestoreRepo.userCollectionPath("student", effectiveSchoolId);
       await firestoreRepo.setDoc(userCollection, studentId, {
         userId: studentId,
         name: name || "",
         email: email ? email.toLowerCase() : "",
+        phone: phone || "",
         role: "student",
         schoolId: effectiveSchoolId,
+        className: fsClassName,
+        section: fsSection,
+        sectionKey: fsSectionKey,
+        rollNo: rollNo || "",
         profilePic: profilePic || "",
-        status: "Active",
+        status: "active",
         syncedAt: firestoreRepo.serverTimestamp(),
       }, { merge: true });
     } catch (fsErr) {

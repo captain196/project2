@@ -16,8 +16,10 @@ function hashOtp(code) {
   return crypto.createHash("sha256").update(code).digest("hex");
 }
 
-// Roles that require device binding for mobile login
-const DEVICE_BOUND_ROLES = ["teacher", "student"];
+// Roles that require device binding for mobile login.
+// Only teacher/class_teacher/student get device binding.
+// Admin sub-roles (librarian, principal, etc.) log in via web panel — no binding.
+const DEVICE_BOUND_ROLES = ["teacher", "class_teacher", "student"];
 
 // ─── Login (email + password) ─────────────────────────────────────────────────
 // deviceId is optional — when provided (mobile app), device binding is enforced

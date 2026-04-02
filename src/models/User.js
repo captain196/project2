@@ -33,7 +33,12 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       required: true,
-      enum: ["super_admin", "school_super_admin", "admin", "student", "teacher"],
+      enum: [
+        "super_admin", "school_super_admin", "admin", "student", "teacher",
+        "principal", "vice_principal", "academic_coordinator", "hr_manager",
+        "accountant", "front_office", "librarian", "transport_manager",
+        "hostel_warden", "class_teacher", "staff",
+      ],
     },
     schoolId: { type: String, default: null },
     schoolCode: { type: String, default: null },
@@ -90,7 +95,11 @@ userSchema.index(
     unique: true,
     partialFilterExpression: {
       email: { $type: "string" },
-      role: { $in: ["super_admin", "school_super_admin", "admin"] },
+      role: { $in: [
+        "super_admin", "school_super_admin", "admin",
+        "principal", "vice_principal", "hr_manager", "accountant",
+        "front_office", "librarian", "transport_manager", "hostel_warden",
+      ] },
     },
   }
 );
@@ -117,6 +126,60 @@ const FIELDS_TO_UNSET = {
     "profilePic","parentDbKey",
     "position","department","staffRoles","primaryRole","classesAssigned","subjects",
     "devices","parentPhone","deviceBindingMethod",
+  ],
+  principal: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "staffRoles","primaryRole","classesAssigned","subjects",
+  ],
+  vice_principal: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "staffRoles","primaryRole","classesAssigned","subjects",
+  ],
+  academic_coordinator: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+  ],
+  hr_manager: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "classesAssigned","subjects",
+  ],
+  accountant: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "staffRoles","primaryRole","classesAssigned","subjects",
+  ],
+  front_office: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "staffRoles","primaryRole","classesAssigned","subjects",
+  ],
+  librarian: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "staffRoles","primaryRole","classesAssigned","subjects",
+  ],
+  transport_manager: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "staffRoles","primaryRole","classesAssigned","subjects",
+  ],
+  hostel_warden: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "staffRoles","primaryRole","classesAssigned","subjects",
+  ],
+  class_teacher: [
+    "schoolDisplayName",
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentPhone","parentDbKey",
+  ],
+  staff: [
+    "className","section","rollNo","fatherName","motherName","dob","admissionDate",
+    "parentDbKey","parentPhone",
+    "staffRoles","primaryRole","classesAssigned","subjects",
   ],
   teacher: [
     "schoolDisplayName",
