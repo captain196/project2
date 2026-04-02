@@ -264,13 +264,28 @@ router.post("/sync-admin", async (req, res) => {
     };
     if (passwordHash) update.$set.password = passwordHash;
 
+    // Profile pic — all roles (student, teacher, staff)
+    if (profilePic !== undefined) update.$set.profilePic = profilePic || null;
+
+    // Student-specific fields
+    const { className, section, rollNo, fatherName, motherName, dob, admissionDate, parentDbKey: pdbKey } = req.body;
+    if (mappedRole === "student") {
+      if (className !== undefined)     update.$set.className = className || null;
+      if (section !== undefined)       update.$set.section = section || null;
+      if (rollNo !== undefined)        update.$set.rollNo = rollNo || null;
+      if (fatherName !== undefined)    update.$set.fatherName = fatherName || null;
+      if (motherName !== undefined)    update.$set.motherName = motherName || null;
+      if (dob !== undefined)           update.$set.dob = dob || null;
+      if (admissionDate !== undefined) update.$set.admissionDate = admissionDate || null;
+      if (pdbKey !== undefined)        update.$set.parentDbKey = pdbKey || null;
+    }
+
     // Staff/teacher profile fields — only set if provided (avoids nulling on partial updates)
     const staffLikeRoles = [
       "teacher", "class_teacher", "principal", "vice_principal", "academic_coordinator",
       "hr_manager", "accountant", "front_office", "librarian", "transport_manager", "hostel_warden", "staff",
     ];
     if (staffLikeRoles.includes(mappedRole)) {
-      if (profilePic !== undefined) update.$set.profilePic = profilePic || null;
       if (position !== undefined)   update.$set.position = position || null;
       if (department !== undefined)  update.$set.department = department || null;
       if (gender !== undefined)      update.$set.gender = gender || null;
