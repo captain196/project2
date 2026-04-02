@@ -67,13 +67,26 @@ router.post("/update-profile-pic", authenticate, async (req, res) => {
       if (resolved) firebaseKey = resolved;
     }
 
-    // Update Firestore: schools/{school}/students/{userId}
-    await firestoreRepo.setDoc(`schools/${firebaseKey}/students`, userId, { profilePic: profilePicUrl }, { merge: true });
+    // Determine user role for correct Firestore paths (lookup from DB if JWT role missing)
+    let role = req.user.role;
+    if (!role) {
+      const User = require("../models/User");
+      const dbUser = await User.findOne({ userId }).select("role").lean();
+      role = dbUser?.role || "student";
+    }
+    const isTeacher = ["teacher", "class_teacher"].includes(role);
+    const isStaff = ["librarian", "accountant", "transport_manager", "hostel_warden", "hr_manager", "front_office", "principal", "vice_principal", "academic_coordinator"].includes(role);
+    const isAdmin = ["admin", "school_super_admin"].includes(role);
 
-    // Update Firestore: users/{school}/students/{userId}
-    try {
-      await firestoreRepo.setDoc(`users/${firebaseKey}/students`, userId, { profilePic: profilePicUrl }, { merge: true });
-    } catch (_) { /* non-critical */ }
+    // Update Firestore: role-aware user collection
+    const firestoreUserRole = isTeacher ? "teacher" : isStaff ? "staff" : isAdmin ? "admin" : "student";
+    const userCollection = firestoreRepo.userCollectionPath(firestoreUserRole, firebaseKey);
+    await firestoreRepo.setDoc(userCollection, userId, { profilePic: profilePicUrl }, { merge: true });
+
+    // Update Firestore: school data collection (students or staff)
+    if (!isTeacher && !isStaff && !isAdmin) {
+      await firestoreRepo.setDoc(`schools/${firebaseKey}/students`, userId, { profilePic: profilePicUrl }, { merge: true });
+    }
 
     // Update MongoDB profilePic field
     const User = require("../models/User");
