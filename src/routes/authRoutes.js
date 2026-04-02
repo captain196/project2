@@ -46,4 +46,44 @@ router.post("/reset-password", resetLimiter, authCtrl.resetPassword);
 // POST /api/auth/register-fcm  (authenticated)
 router.post("/register-fcm", authenticate, authCtrl.registerFcm);
 
+// POST /api/auth/update-profile-pic  (authenticated)
+// Updates profilePic URL in Firestore (students can't write directly due to security rules)
+router.post("/update-profile-pic", authenticate, async (req, res) => {
+  try {
+    const { profilePicUrl } = req.body;
+    const userId = req.user.userId;
+    const schoolCode = req.user.schoolCode || req.user.schoolId;
+
+    if (!profilePicUrl || !userId) {
+      return res.status(400).json({ success: false, message: "profilePicUrl is required" });
+    }
+
+    // Resolve Firebase school key
+    const firestoreRepo = require("../repositories/firestoreRepo");
+    const firebaseUserRepo = require("../repositories/firebaseUserRepo");
+    let firebaseKey = schoolCode;
+    if (schoolCode && !schoolCode.startsWith("SCH_")) {
+      const resolved = await firebaseUserRepo.get(`Indexes/School_codes/${schoolCode}`);
+      if (resolved) firebaseKey = resolved;
+    }
+
+    // Update Firestore: schools/{school}/students/{userId}
+    await firestoreRepo.setDoc(`schools/${firebaseKey}/students`, userId, { profilePic: profilePicUrl }, { merge: true });
+
+    // Update Firestore: users/{school}/students/{userId}
+    try {
+      await firestoreRepo.setDoc(`users/${firebaseKey}/students`, userId, { profilePic: profilePicUrl }, { merge: true });
+    } catch (_) { /* non-critical */ }
+
+    // Update MongoDB profilePic field
+    const User = require("../models/User");
+    await User.updateOne({ userId }, { $set: { profilePic: profilePicUrl } });
+
+    res.json({ success: true, message: "Profile photo updated", profilePicUrl });
+  } catch (error) {
+    console.error("update-profile-pic error:", error.message);
+    res.status(500).json({ success: false, message: "Failed to update profile photo" });
+  }
+});
+
 module.exports = router;
