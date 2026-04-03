@@ -94,9 +94,11 @@ const ADMIN_PATH_ROLES = [
 function getFirebasePath(role, schoolId, userId) {
   const safeSchool = _safeFbSegment(schoolId);
   const safeUser = _safeFbSegment(userId);
-  if (role === "super_admin") return `Users/Admin/Our Panel/${safeUser}`;
-  if (role === "teacher" || role === "class_teacher") return `Users/Teachers/${safeSchool}/${safeUser}`;
-  if (role === "student") return `Users/Parents/${safeSchool}/${safeUser}`;
+  // Normalize: "school super admin" → "school_super_admin"
+  const r = (role || "").toLowerCase().trim().replace(/\s+/g, "_");
+  if (r === "super_admin") return `Users/Admin/Our Panel/${safeUser}`;
+  if (r === "teacher" || r === "class_teacher") return `Users/Teachers/${safeSchool}/${safeUser}`;
+  if (r === "student") return `Users/Parents/${safeSchool}/${safeUser}`;
   // All admin sub-roles (ADM prefix users) go to Users/Admin/
   return `Users/Admin/${safeSchool}/${safeUser}`;
 }

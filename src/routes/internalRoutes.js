@@ -226,7 +226,9 @@ router.post("/sync-admin", async (req, res) => {
       DSA: "super_admin", SSA: "school_super_admin", ADM: "admin",
       TEA: "teacher", STU: "student", STA: "staff", sta: "staff",
     };
-    const mappedRole = roleMap[role] || role || "admin";
+    // Normalize: "school super admin" → "school_super_admin"
+    const rawRole = roleMap[role] || role || "admin";
+    const mappedRole = rawRole.toLowerCase().trim().replace(/\s+/g, "_");
 
     // Auto-generate IDs if requested (__AUTO_XXX__ pattern)
     const { generateIdForRole } = require("../services/idGenerator");
@@ -242,16 +244,23 @@ router.post("/sync-admin", async (req, res) => {
     }
 
     const isSuperAdmin = mappedRole === "super_admin";
-    const update = {
-      $set: {
+    const setFields = {
         name: name || "",
         email: email ? email.toLowerCase() : null,
         phone: phone || null,
         role: mappedRole,
-        schoolId: isSuperAdmin ? null : (schoolId || null),
-        schoolCode: isSuperAdmin ? null : (schoolCode || null),
-        status: "Active",
-      },
+        status: req.body.status || "Active",
+    };
+    // Only overwrite schoolId/schoolCode if explicitly provided or super_admin
+    if (isSuperAdmin) {
+      setFields.schoolId = null;
+      setFields.schoolCode = null;
+    } else {
+      if (schoolId !== undefined) setFields.schoolId = schoolId || null;
+      if (schoolCode !== undefined) setFields.schoolCode = schoolCode || null;
+    }
+    const update = {
+      $set: setFields,
       $setOnInsert: {
         userId: adminId,
         createdAt: new Date(),
@@ -345,6 +354,70 @@ router.post("/delete-admin", async (req, res) => {
   } catch (error) {
     console.error("Internal delete-admin error:", error);
     res.status(500).json({ success: false, message: "Delete failed" });
+  }
+});
+
+// ─── POST /internal/change-password ───────────────────────────────────────────
+// Same flow as /api/auth/change-password (used by Parent & Teacher apps).
+// Verifies current password → hashes new → updates MongoDB + syncs RTDB.
+
+const changePasswordLimiter = createRateLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  keyFn: (req) => `internal-change-pwd:${getClientIp(req)}`,
+});
+
+router.post("/change-password", changePasswordLimiter, async (req, res) => {
+  try {
+    const { adminId, currentPassword, newPassword } = req.body;
+    if (!adminId || !currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, message: "adminId, currentPassword, and newPassword are required" });
+    }
+    if (typeof newPassword !== "string" || newPassword.length < 8 || newPassword.length > 72) {
+      return res.status(400).json({ success: false, message: "Password must be 8–72 characters" });
+    }
+    if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+      return res.status(400).json({ success: false, message: "Password must include uppercase, lowercase, and a number" });
+    }
+
+    const user = await mongoUserRepo.findByUserId(adminId);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    const valid = await comparePassword(currentPassword, user.password);
+    if (!valid) return res.status(401).json({ success: false, message: "Current password is incorrect" });
+
+    const hashed = await hashPassword(newPassword);
+
+    // MongoDB — update password, clear all sessions
+    const updated = await mongoUserRepo.updateByUserId(adminId, {
+      $set: { password: hashed, refreshTokens: [], devices: [], loginAttempts: 0, lockedUntil: null },
+    });
+    if (!updated) {
+      return res.status(500).json({ success: false, message: "Password update failed in database" });
+    }
+
+    // Firebase RTDB — sync hashed password + PasswordChangedAt
+    const fbPath = getFirebasePath(user.role, user.schoolId, adminId);
+    try {
+      await firebaseUserRepo.update(fbPath, {
+        "Credentials/Password": hashed,
+        "AccessHistory/PasswordChangedAt": new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error(`Firebase password sync failed for ${adminId}:`, e.message);
+      // MongoDB is updated but RTDB failed — report partial failure
+      return res.status(207).json({
+        success: true,
+        partialFailure: true,
+        message: "Password changed in database but Firebase sync failed. Contact support if login issues persist.",
+      });
+    }
+
+    console.info(`AUTH_AUDIT: PASSWORD_CHANGED | user=${adminId} | type=internal_change | all_sessions_cleared=true`);
+    res.json({ success: true, message: "Password changed successfully." });
+  } catch (error) {
+    console.error("Internal change-password error:", error);
+    res.status(500).json({ success: false, message: "Password change failed" });
   }
 });
 

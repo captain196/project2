@@ -126,7 +126,8 @@ function serverTimestamp() {
  * @returns {string}         Subcollection path, e.g. "users/SCH_xxx/teachers"
  */
 function userCollectionPath(role, schoolId) {
-  const r = (role || "").toLowerCase().trim();
+  // Normalize: "School Super Admin" / "school super admin" / "school_super_admin" → "school_super_admin"
+  const r = (role || "").toLowerCase().trim().replace(/\s+/g, "_");
   switch (r) {
     case "super_admin":
     case "superadmin":
