@@ -122,9 +122,22 @@ router.post("/update-profile", authenticate, async (req, res) => {
 
     const updates = {};
     if (phone !== undefined) updates.phone = phone;
-    if (address !== undefined) updates.address = address;
+    if (address !== undefined) {
+      // Write consistent format — overwrite both legacy (capitalized) and new (lowercase)
+      updates.address = {
+        street: address.street || "",
+        city: address.city || "",
+        state: address.state || "",
+        postalCode: address.postalCode || "",
+        // Legacy keys (for RTDB write-behind and old reads)
+        Street: address.street || "",
+        City: address.city || "",
+        State: address.state || "",
+        PostalCode: address.postalCode || "",
+      };
+    }
 
-    // 1. Firestore: schools/{school}/students/{id} (primary)
+    // 1. Firestore: schools/{school}/students/{id} (primary) — full replace of address field
     await firestoreRepo.setDoc(`schools/${firebaseKey}/students`, userId, updates, { merge: true });
 
     // 2. Firestore: users/{school}/students/{id}
