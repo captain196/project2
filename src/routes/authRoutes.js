@@ -123,17 +123,12 @@ router.post("/update-profile", authenticate, async (req, res) => {
     const updates = {};
     if (phone !== undefined) updates.phone = phone;
     if (address !== undefined) {
-      // Write consistent format — overwrite both legacy (capitalized) and new (lowercase)
+      // Firestore: lowercase only (standard)
       updates.address = {
         street: address.street || "",
         city: address.city || "",
         state: address.state || "",
         postalCode: address.postalCode || "",
-        // Legacy keys (for RTDB write-behind and old reads)
-        Street: address.street || "",
-        City: address.city || "",
-        State: address.state || "",
-        PostalCode: address.postalCode || "",
       };
     }
 
