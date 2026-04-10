@@ -4,7 +4,7 @@ const Counter = require("../models/Counter");
  * Atomically increment and return next sequence number.
  * Uses findOneAndUpdate with $inc — race-condition safe.
  *
- * @param {string} prefix - "DSA", "SSA", "ADM", "SCH"
+ * @param {string} prefix - "SUP", "SSA", "STA", "TEA", "STU", "SCH"
  * @returns {Promise<number>} next sequence number
  */
 async function getNextSequence(prefix) {

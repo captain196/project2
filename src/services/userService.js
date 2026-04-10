@@ -99,7 +99,7 @@ function getFirebasePath(role, schoolId, userId) {
   if (r === "super_admin") return `Users/Admin/Our Panel/${safeUser}`;
   if (r === "teacher" || r === "class_teacher") return `Users/Teachers/${safeSchool}/${safeUser}`;
   if (r === "student") return `Users/Parents/${safeSchool}/${safeUser}`;
-  // All admin sub-roles (ADM prefix users) go to Users/Admin/
+  // All admin sub-roles (STA prefix users) go to Users/Admin/
   return `Users/Admin/${safeSchool}/${safeUser}`;
 }
 

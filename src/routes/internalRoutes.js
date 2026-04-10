@@ -223,7 +223,7 @@ router.post("/sync-admin", async (req, res) => {
     // All roles now stored as-is in MongoDB (enum expanded).
     // Only map legacy ID-prefix shortcuts to proper role names.
     const roleMap = {
-      DSA: "super_admin", SSA: "school_super_admin", ADM: "admin",
+      DSA: "super_admin", SSA: "school_super_admin",
       TEA: "teacher", STU: "student", STA: "staff", sta: "staff",
     };
     // Normalize: "school super admin" → "school_super_admin"
@@ -235,7 +235,7 @@ router.post("/sync-admin", async (req, res) => {
     const autoMap = {
       "__AUTO_SUP__": "super_admin",
       "__AUTO_SSA__": "school_super_admin",
-      "__AUTO_ADM__": "admin",
+      "__AUTO_STA__": "admin",
       "__AUTO_STU__": "student",
       "__AUTO_TEA__": "teacher",
     };

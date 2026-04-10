@@ -133,7 +133,7 @@ async function main() {
   // ═══════════ PHASE 3: SCHOOLS ═══════════
   console.log("🏫 PHASE 3: Creating 3 schools...\n");
 
-  const idCounters = { SSA:0, ADM:0, TEA:0, STU:0, STA:0 };
+  const idCounters = { SSA:0, STA:0, TEA:0, STU:0 };
   const allUsers = [];
 
   for (let si = 0; si < SCHOOLS.length; si++) {
@@ -170,16 +170,16 @@ async function main() {
     // ── Create ALL roles ──
     const roles = [
       { prefix:"SSA", role:"school_super_admin", name:names.ssa, pos:"School Super Admin", dept:"Administration" },
-      { prefix:"ADM", role:"admin", name:names.admin, pos:"Admin", dept:"Administration" },
-      { prefix:"ADM", role:"admin", name:names.principal, pos:"Principal", dept:"Administration", adminRole:"Principal" },
-      { prefix:"ADM", role:"admin", name:names.vp, pos:"Vice Principal", dept:"Administration", adminRole:"Vice Principal" },
-      { prefix:"ADM", role:"admin", name:names.ac, pos:"Academic Coordinator", dept:"Academics", adminRole:"Academic Coordinator" },
-      { prefix:"ADM", role:"admin", name:names.hr, pos:"HR Manager", dept:"HR", adminRole:"HR Manager" },
-      { prefix:"ADM", role:"admin", name:names.accountant, pos:"Accountant", dept:"Finance", adminRole:"Accountant" },
-      { prefix:"ADM", role:"admin", name:names.fo, pos:"Front Office", dept:"Administration", adminRole:"Front Office" },
-      { prefix:"STA", role:"teacher", name:names.librarian, pos:"Librarian", dept:"Library", adminRole:"Librarian" },
-      { prefix:"STA", role:"teacher", name:names.transport, pos:"Transport Manager", dept:"Transport", adminRole:"Transport Manager" },
-      { prefix:"STA", role:"teacher", name:names.hostel, pos:"Hostel Warden", dept:"Hostel", adminRole:"Hostel Warden" },
+      { prefix:"STA", role:"admin", name:names.admin, pos:"Admin", dept:"Administration" },
+      { prefix:"STA", role:"principal", name:names.principal, pos:"Principal", dept:"Administration", adminRole:"Principal" },
+      { prefix:"STA", role:"vice_principal", name:names.vp, pos:"Vice Principal", dept:"Administration", adminRole:"Vice Principal" },
+      { prefix:"STA", role:"academic_coordinator", name:names.ac, pos:"Academic Coordinator", dept:"Academics", adminRole:"Academic Coordinator" },
+      { prefix:"STA", role:"hr_manager", name:names.hr, pos:"HR Manager", dept:"HR", adminRole:"HR Manager" },
+      { prefix:"STA", role:"accountant", name:names.accountant, pos:"Accountant", dept:"Finance", adminRole:"Accountant" },
+      { prefix:"STA", role:"front_office", name:names.fo, pos:"Front Office", dept:"Administration", adminRole:"Front Office" },
+      { prefix:"STA", role:"librarian", name:names.librarian, pos:"Librarian", dept:"Library", adminRole:"Librarian" },
+      { prefix:"STA", role:"transport_manager", name:names.transport, pos:"Transport Manager", dept:"Transport", adminRole:"Transport Manager" },
+      { prefix:"STA", role:"hostel_warden", name:names.hostel, pos:"Hostel Warden", dept:"Hostel", adminRole:"Hostel Warden" },
       { prefix:"TEA", role:"teacher", name:names.tea1, pos:"Class Teacher", dept:"Academics", classes:["Class 8th/Section A"], subjects:["Mathematics","Science"] },
       { prefix:"TEA", role:"teacher", name:names.tea2, pos:"Subject Teacher", dept:"Academics", classes:["Class 9th/Section A"], subjects:["English","Hindi"] },
     ];
@@ -259,12 +259,12 @@ async function main() {
         title:e.title, description:e.desc, category:e.cat, location:e.loc,
         start_date:e.start, end_date:e.end, organizer:"Administration",
         max_participants:e.max, status:e.status, created_at:now, updated_at:now,
-        created_by:"ADM0001", created_by_name:"Admin",
+        created_by:"STA0001", created_by_name:"Admin",
       });
       await fs.collection("events").doc(`${eid}_${s.code}`).set({
         schoolId:s.code, session:SESSION, title:e.title, description:e.desc,
         category:e.cat, startDate:e.start, endDate:e.end, location:e.loc,
-        status:e.status, mediaUrls:[], createdBy:"ADM0001", createdAt:new Date(),
+        status:e.status, mediaUrls:[], createdBy:"STA0001", createdAt:new Date(),
       });
     }
     console.log(`     ${EVENTS_TEMPLATE.length} events created\n`);
