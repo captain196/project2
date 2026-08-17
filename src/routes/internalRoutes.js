@@ -115,6 +115,13 @@ router.post("/web-login", webLoginLimiter, async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
+    // Role gate — only admin-tier roles may use the web (admin panel) login
+    const WEB_LOGIN_BLOCKED_ROLES = ["teacher", "class_teacher", "student", "staff"];
+    if (WEB_LOGIN_BLOCKED_ROLES.includes(user.role)) {
+      console.info(`AUTH_AUDIT: LOGIN_FAILURE | user=${adminId} | ip=${req.ip} | type=web | reason=role_blocked (${user.role})`);
+      return res.status(403).json({ success: false, message: "Access denied. Use the mobile app to log in." });
+    }
+
     // Successful login — reset lockout counters
     if (user.loginAttempts > 0 || user.lockedUntil) {
       await mongoUserRepo.updateByUserId(user.userId, {
@@ -217,6 +224,8 @@ router.post("/sync-admin", async (req, res) => {
       adminId, name, email, phone, role, passwordHash, schoolId, schoolCode, createdBy,
       // Teacher-specific fields
       profilePic, position, department, staffRoles, primaryRole, classesAssigned, subjects, gender,
+      // Teacher capacity fields (Firestore-only, not stored in MongoDB)
+      specialization, maxPeriodsWeek, maxPeriodsDay,
     } = req.body;
     if (!adminId) return res.status(400).json({ success: false, message: "adminId required" });
 
@@ -328,6 +337,9 @@ router.post("/sync-admin", async (req, res) => {
         classesAssigned: Array.isArray(classesAssigned) ? classesAssigned : [],
         gender: gender || "",
         profilePic: profilePic || "",
+        specialization: Array.isArray(specialization) ? specialization : [],
+        maxPeriodsWeek: parseInt(maxPeriodsWeek) || 40,
+        maxPeriodsDay: parseInt(maxPeriodsDay) || 8,
         status: "Active",
         syncedAt: firestoreRepo.serverTimestamp(),
         syncSource: "sync-admin",

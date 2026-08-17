@@ -1,5 +1,6 @@
 const { generateId } = require("./idGenerator");
 const firebaseUserRepo = require("../repositories/firebaseUserRepo");
+const firestoreRepo = require("../repositories/firestoreRepo");
 const { ValidationError, ForbiddenError, AppError } = require("../utils/errors");
 const mongoUserRepo = require("../repositories/mongoUserRepo");
 
@@ -27,13 +28,30 @@ async function createSchool({ schoolName, city, email, phone, createdBy }) {
 
   const basePath = `System/Schools/${schoolId}`;
 
+  // Generate login code for this school
+  const loginCode = await generateId("SCHCODE");
+
   try {
-    // 1. Profile (canonical school data)
+    // 1. FIRESTORE FIRST — schools/{schoolId}/ document
+    await firestoreRepo.setDoc("schools", schoolId, {
+      schoolCode: schoolId,
+      loginCode,
+      schoolName,
+      city: city || "",
+      email: email || "",
+      phone: phone || "",
+      status: "Active",
+      plan: "trial",
+      createdBy,
+      createdAt: firestoreRepo.serverTimestamp(),
+    });
+
+    // 2. RTDB — System/Schools/{schoolId}/ (cache)
     await firebaseUserRepo.set(`${basePath}/profile`, {
       school_name: schoolName,
       name: schoolName,
       school_id: schoolId,
-      school_code: "",
+      school_code: loginCode,
       city: city || "",
       street: "",
       email: email || "",
@@ -75,7 +93,7 @@ async function createSchool({ schoolName, city, email, phone, createdBy }) {
     throw new AppError("Failed to create school in Firebase: " + err.message);
   }
 
-  return { schoolId, name: schoolName, status: "active", createdAt: now };
+  return { schoolId, loginCode, name: schoolName, status: "active", createdAt: now };
 }
 
 module.exports = { createSchool };

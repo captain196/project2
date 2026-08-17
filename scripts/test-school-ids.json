@@ -1,0 +1,47 @@
+{
+  "school": {
+    "name": "SchoolSync Test Academy",
+    "code": "SCH0002",
+    "loginCode": "10003",
+    "session": "2026-27"
+  },
+  "ssa": "SSA0003",
+  "admin": "STA0013",
+  "teachers": [
+    {
+      "id": "TEA0011",
+      "name": "Rajesh Kumar",
+      "subjects": [
+        "Mathematics",
+        "Science"
+      ]
+    },
+    {
+      "id": "TEA0012",
+      "name": "Priya Sharma",
+      "subjects": [
+        "English",
+        "Hindi"
+      ]
+    },
+    {
+      "id": "TEA0013",
+      "name": "Amit Verma",
+      "subjects": [
+        "Social Studies",
+        "Computer Science"
+      ]
+    },
+    {
+      "id": "TEA0014",
+      "name": "Neha Singh",
+      "subjects": [
+        "Science",
+        "Physical Education",
+        "Art"
+      ]
+    }
+  ],
+  "studentCount": 15,
+  "password": "Test1234"
+}
